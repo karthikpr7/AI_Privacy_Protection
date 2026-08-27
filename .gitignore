@@ -10,7 +10,9 @@ __pycache__/
 uploads/
 
 # Generated files
-outputs/
+outputs/*
+!outputs/eda/
+!outputs/eda/*.png
 
 # Environment / secrets
 .env
@@ -21,6 +23,10 @@ models/
 
 # Raw dataset - keep locally
 dataset/raw/
+
+# Generated processed datasets
+dataset/processed/cleaned_train.jsonl
+dataset/processed/preprocessed_train.jsonl
 
 # IDE
 .vscode/
