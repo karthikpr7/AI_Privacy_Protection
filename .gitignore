@@ -1,8 +1,30 @@
+# Virtual environment
 venv/
+.venv/
+
+# Python cache
 __pycache__/
 *.pyc
 
+# Uploaded documents
 uploads/
+
+# Generated files
+outputs/
+
+# Environment / secrets
+.env
 *.env
 
+# Trained models - keep locally
 models/
+
+# Raw dataset - keep locally
+dataset/raw/
+
+# IDE
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

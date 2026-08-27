@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        AI-Based Privacy Protection
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+
+<!-- =====================================================
+     NAVIGATION
+     ===================================================== -->
+
+<header class="navbar">
+
+    <div class="container navbar-inner">
+
+        <a href="/" class="brand">
+
+            <div class="brand-icon">
+                🔐
+            </div>
+
+            <span>
+                AI-Based Privacy Protection
+            </span>
+
+        </a>
+
+
+        <nav class="nav-links">
+
+            <a href="#features">
+                Features
+            </a>
+
+            <a href="#how-it-works">
+                How It Works
+            </a>
+
+            <a
+                href="#analyze"
+                class="nav-cta"
+            >
+                Analyze Now →
+            </a>
+
+        </nav>
+
+    </div>
+
+</header>
+
+
+{% if error %}
+
+<div class="alert">
+    {{ error }}
+</div>
+
+{% endif %}
+
+
+<!-- =====================================================
+     HERO
+     ===================================================== -->
+
+<section class="hero">
+
+    <div class="hero-glow hero-glow-one"></div>
+    <div class="hero-glow hero-glow-two"></div>
+
+
+    <div class="container hero-content">
+
+        <div class="hero-layout">
+
+
+            <!-- LEFT -->
+
+            <div>
+
+                <div class="hero-badge">
+
+                    <span class="hero-badge-dot"></span>
+
+                    AI-POWERED PRIVACY SECURITY
+
+                </div>
+
+
+                <h1>
+
+                    Your Data.
+
+                    <span class="hero-gradient">
+                        Your Privacy.
+                    </span>
+
+                    Your Control.
+
+                </h1>
+
+
+                <p class="hero-description">
+
+                    Detect sensitive personal information,
+                    understand your privacy risk, and protect
+                    your documents before sharing them.
+
+                </p>
+
+
+                <div class="hero-actions">
+
+                    <a
+                        href="#analyze"
+                        class="btn btn-primary"
+                    >
+                        Analyze Your Data →
+                    </a>
+
+
+                    <a
+                        href="#features"
+                        class="btn btn-glass"
+                    >
+                        Explore Protection
+                    </a>
+
+                </div>
+
+
+                <div class="hero-trust">
+
+                    <span>
+                        AI NER Detection
+                    </span>
+
+                    <span>
+                        Regex Detection
+                    </span>
+
+                    <span>
+                        Privacy Risk Analysis
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <!-- RIGHT SECURITY DASHBOARD -->
+
+            <div class="hero-visual">
+
+                <div class="security-card">
+
+
+                    <div class="security-top">
+
+                        <div class="security-title">
+
+                            <div class="security-shield">
+                                🔒
+                            </div>
+
+                            Privacy Security
+
+                        </div>
+
+
+                        <div class="live-status">
+                            ● SYSTEM ACTIVE
+                        </div>
+
+                    </div>
+
+
+                    <div class="security-score">
+
+                        <div class="score-circle">
+
+                            <strong>
+                                100
+                            </strong>
+
+                            <span>
+                                Privacy Exposure
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="security-items">
+
+                        <div class="security-item">
+
+                            <div class="security-item-left">
+
+                                <span class="security-item-dot"></span>
+
+                                Personal Information
+
+                            </div>
+
+                            <span>
+                                Detected
+                            </span>
+
+                        </div>
+
+
+                        <div class="security-item">
+
+                            <div class="security-item-left">
+
+                                <span class="security-item-dot"></span>
+
+                                Structured PII
+
+                            </div>
+
+                            <span>
+                                Protected
+                            </span>
+
+                        </div>
+
+
+                        <div class="security-item">
+
+                            <div class="security-item-left">
+
+                                <span class="security-item-dot warning"></span>
+
+                                Privacy Risk
+
+                            </div>
+
+                            <span>
+                                Analyzed
+                            </span>
+
+                        </div>
+
+
+                        <div class="security-item">
+
+                            <div class="security-item-left">
+
+                                <span class="security-item-dot"></span>
+
+                                Document Protection
+
+                            </div>
+
+                            <span>
+                                Ready
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     FEATURE BAR
+     ===================================================== -->
+
+<section class="feature-bar">
+
+    <div class="container feature-bar-grid">
+
+
+        <div class="feature-bar-item">
+
+            <div class="feature-bar-icon">
+                ◈
+            </div>
+
+            <div>
+
+                <strong>
+                    AI + Regex
+                </strong>
+
+                <small>
+                    Multi-layer detection
+                </small>
+
+            </div>
+
+        </div>
+
+
+        <div class="feature-bar-item">
+
+            <div class="feature-bar-icon">
+                ◉
+            </div>
+
+            <div>
+
+                <strong>
+                    Privacy Score
+                </strong>
+
+                <small>
+                    Risk measured 0–100
+                </small>
+
+            </div>
+
+        </div>
+
+
+        <div class="feature-bar-item">
+
+            <div class="feature-bar-icon">
+                ▣
+            </div>
+
+            <div>
+
+                <strong>
+                    PDF + Images
+                </strong>
+
+                <small>
+                    Document analysis
+                </small>
+
+            </div>
+
+        </div>
+
+
+        <div class="feature-bar-item">
+
+            <div class="feature-bar-icon">
+                ✓
+            </div>
+
+            <div>
+
+                <strong>
+                    Smart Masking
+                </strong>
+
+                <small>
+                    Protect sensitive data
+                </small>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     ANALYZE
+     ===================================================== -->
+
+<section
+    class="section analyze-section"
+    id="analyze"
+>
+
+    <div class="container">
+
+
+        <div class="section-header">
+
+            <span class="eyebrow">
+                PRIVACY ANALYSIS
+            </span>
+
+            <h2>
+                Find Sensitive Data Before It Leaks
+            </h2>
+
+            <p>
+                Upload a document or enter text. Our privacy
+                analysis pipeline detects sensitive information,
+                evaluates risk, and prepares protected content.
+            </p>
+
+        </div>
+
+
+        <div class="analyze-grid">
+
+
+            <!-- DOCUMENT -->
+
+            <div class="analyze-card">
+
+                <div class="card-icon-large">
+                    ↑
+                </div>
+
+
+                <h3>
+                    Analyze a Document
+                </h3>
+
+
+                <p class="analyze-card-description">
+
+                    Upload your PDF or image and let the
+                    privacy engine automatically extract
+                    and analyze its content.
+
+                </p>
+
+
+                <form
+                    action="{{ url_for('analyze_file') }}"
+                    method="POST"
+                    enctype="multipart/form-data"
+                >
+
+
+                    <label
+                        for="fileInput"
+                        class="upload-box"
+                        id="uploadBox"
+                    >
+
+                        <div>
+
+                            <div class="upload-circle">
+                                ↑
+                            </div>
+
+
+                            <div class="upload-title">
+                                Drop your document here
+                            </div>
+
+
+                            <div class="upload-subtitle">
+                                or click to browse
+                            </div>
+
+
+                            <div class="upload-subtitle">
+                                PDF • PNG • JPG • JPEG
+                            </div>
+
+
+                            <div
+                                class="file-name"
+                                id="fileName"
+                            ></div>
+
+                        </div>
+
+                    </label>
+
+
+                    <input
+                        type="file"
+                        id="fileInput"
+                        name="file"
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        hidden
+                        required
+                    >
+
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary full-btn"
+                    >
+                        Analyze Document →
+                    </button>
+
+                </form>
+
+            </div>
+
+
+            <!-- TEXT -->
+
+            <div class="analyze-card">
+
+                <div class="card-icon-large blue">
+                    Aa
+                </div>
+
+
+                <h3>
+                    Analyze Text
+                </h3>
+
+
+                <p class="analyze-card-description">
+
+                    Paste text containing personal information
+                    and instantly discover the privacy exposure.
+
+                </p>
+
+
+                <form
+                    action="{{ url_for('analyze') }}"
+                    method="POST"
+                >
+
+                    <textarea
+                        name="text"
+                        class="text-area"
+                        placeholder="Example:
+
+Contact Rahul Sharma at rahul@gmail.com.
+My phone number is +91 9876543210.
+My PAN is ABCDE1234F.
+My Aadhaar is 1234 5678 9012."
+                        required
+                    ></textarea>
+
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary full-btn"
+                    >
+                        Analyze Text →
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     FEATURES
+     ===================================================== -->
+
+<section
+    class="section dark-section"
+    id="features"
+>
+
+    <div class="container">
+
+
+        <div class="section-header">
+
+            <span class="eyebrow">
+                DEFENSE LAYERS
+            </span>
+
+            <h2>
+                Built Like a Privacy Security System
+            </h2>
+
+            <p>
+                Multiple analysis layers work together to
+                identify, understand, and protect sensitive data.
+            </p>
+
+        </div>
+
+
+        <div class="feature-grid">
+
+
+            <div class="feature-card">
+
+                <span class="feature-card-number">
+                    01
+                </span>
+
+                <div class="feature-card-icon">
+                    ◎
+                </div>
+
+                <h3>
+                    AI NER Detection
+                </h3>
+
+                <p>
+                    Identifies contextual entities such as
+                    names and other privacy-related information
+                    using the trained NER model.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <span class="feature-card-number">
+                    02
+                </span>
+
+                <div class="feature-card-icon">
+                    #
+                </div>
+
+                <h3>
+                    Regex Detection
+                </h3>
+
+                <p>
+                    Detects structured information such as
+                    email addresses, phone numbers, PAN,
+                    Aadhaar, bank details and card numbers.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <span class="feature-card-number">
+                    03
+                </span>
+
+                <div class="feature-card-icon">
+                    ◇
+                </div>
+
+                <h3>
+                    Privacy Risk Analysis
+                </h3>
+
+                <p>
+                    Converts detected sensitive information
+                    into a project-defined privacy score
+                    from 0 to 100.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <span class="feature-card-number">
+                    04
+                </span>
+
+                <div class="feature-card-icon">
+                    ▣
+                </div>
+
+                <h3>
+                    Intelligent Masking
+                </h3>
+
+                <p>
+                    Partially masks sensitive information while
+                    preserving useful content and readability.
+                </p>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     WORKFLOW
+     ===================================================== -->
+
+<section
+    class="section"
+    id="how-it-works"
+>
+
+    <div class="container">
+
+
+        <div class="section-header">
+
+            <span class="eyebrow">
+                SIMPLE WORKFLOW
+            </span>
+
+            <h2>
+                From Data to Protection
+            </h2>
+
+            <p>
+                Four simple stages transform unprotected
+                information into privacy-aware content.
+            </p>
+
+        </div>
+
+
+        <div class="workflow">
+
+
+            <div class="workflow-step">
+
+                <div class="workflow-number">
+                    01
+                </div>
+
+                <h3>
+                    Upload
+                </h3>
+
+                <p>
+                    Upload a document or enter your text.
+                </p>
+
+            </div>
+
+
+            <div class="workflow-line"></div>
+
+
+            <div class="workflow-step">
+
+                <div class="workflow-number">
+                    02
+                </div>
+
+                <h3>
+                    Detect
+                </h3>
+
+                <p>
+                    AI NER and Regex identify sensitive data.
+                </p>
+
+            </div>
+
+
+            <div class="workflow-line"></div>
+
+
+            <div class="workflow-step">
+
+                <div class="workflow-number">
+                    03
+                </div>
+
+                <h3>
+                    Analyze
+                </h3>
+
+                <p>
+                    The system evaluates privacy exposure.
+                </p>
+
+            </div>
+
+
+            <div class="workflow-line"></div>
+
+
+            <div class="workflow-step">
+
+                <div class="workflow-number">
+                    04
+                </div>
+
+                <h3>
+                    Protect
+                </h3>
+
+                <p>
+                    Sensitive information is partially masked.
+                </p>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     FOOTER
+     ===================================================== -->
+
+<footer class="footer">
+
+    <div class="container footer-inner">
+
+        <div class="footer-brand">
+
+            <div class="brand-icon">
+                🔐
+            </div>
+
+            <div>
+
+                <strong>
+                    AI-Based Privacy Protection
+                </strong>
+
+                <span>
+                    Protect sensitive information before sharing.
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="footer-right">
+
+            AI Detection • Risk Analysis • Data Protection
+
+        </div>
+
+    </div>
+
+</footer>
+
+
+<script>
+
+const fileInput =
+    document.getElementById("fileInput");
+
+const fileName =
+    document.getElementById("fileName");
+
+const uploadBox =
+    document.getElementById("uploadBox");
+
+
+fileInput.addEventListener(
+    "change",
+    function () {
+
+        if (this.files.length > 0) {
+
+            fileName.textContent =
+                "Selected: " +
+                this.files[0].name;
+
+        }
+
+    }
+);
+
+
+uploadBox.addEventListener(
+    "dragover",
+    function (event) {
+
+        event.preventDefault();
+
+        uploadBox.classList.add("dragover");
+
+    }
+);
+
+
+uploadBox.addEventListener(
+    "dragleave",
+    function () {
+
+        uploadBox.classList.remove("dragover");
+
+    }
+);
+
+
+uploadBox.addEventListener(
+    "drop",
+    function (event) {
+
+        event.preventDefault();
+
+        uploadBox.classList.remove("dragover");
+
+
+        if (
+            event.dataTransfer.files.length > 0
+        ) {
+
+            fileInput.files =
+                event.dataTransfer.files;
+
+            fileName.textContent =
+                "Selected: " +
+                event.dataTransfer.files[0].name;
+
+        }
+
+    }
+);
+
+</script>
+
+
+</body>
+</html>
