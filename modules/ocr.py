@@ -5,6 +5,10 @@ import pytesseract
 
 from PIL import Image
 
+# Tesseract OCR executable
+if os.name != "nt":
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 
 SUPPORTED_IMAGE_EXTENSIONS = {
     ".png",

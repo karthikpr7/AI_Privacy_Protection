@@ -1,0 +1,16 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.vscode/
+
+uploads/
+outputs/
+
+dataset/raw/
+dataset/processed/cleaned_train.jsonl
+dataset/processed/preprocessed_train.jsonl
+
+models/privacy_ner_100k/final/
