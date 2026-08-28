@@ -18,8 +18,11 @@ outputs/*
 .env
 *.env
 
-# Trained models - keep locally
-models/
+# Trained models
+models/*
+!models/privacy_ner_100k/
+!models/privacy_ner_100k/best/
+!models/privacy_ner_100k/best/**
 
 # Raw dataset - keep locally
 dataset/raw/
