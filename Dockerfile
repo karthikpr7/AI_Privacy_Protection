@@ -28,4 +28,4 @@ RUN mkdir -p uploads outputs/protected outputs/reports
 # Render provides the PORT environment variable.
 # Gunicorn listens on 0.0.0.0:10000 by default through Render,
 # so use the PORT variable explicitly.
-CMD gunicorn --bind 0.0.0.0:${PORT:-10000} app:app
+CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --timeout 120 app:app

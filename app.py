@@ -4,40 +4,55 @@ from flask import (
     request,
     send_file
 )
+
 import os
+import json
 
 from modules.detector import analyze_text
+
 from modules.masking import mask_text_by_values
+
 from modules.ocr import (
-    extract_text_from_file,
     extract_document_data,
     detect_sensitive_fields_from_ocr,
     create_masked_text_preview
 )
+
 from modules.document_protector import create_protected_pdf
+
 from modules.report_generator import (
     generate_report,
     generate_privacy_report_pdf
 )
 
+from modules.risk_analyzer import calculate_risk
+
+
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
 
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+# =========================================================
+# FOLDERS
+# =========================================================
+
+UPLOAD_FOLDER = "uploads"
 
 PROTECTED_FOLDER = "outputs/protected"
 
 REPORT_FOLDER = "outputs/reports"
 
-app.config["REPORT_FOLDER"] = REPORT_FOLDER
 
-os.makedirs(
-    REPORT_FOLDER,
-    exist_ok=True
-)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 app.config["PROTECTED_FOLDER"] = PROTECTED_FOLDER
+
+app.config["REPORT_FOLDER"] = REPORT_FOLDER
+
+
+os.makedirs(
+    UPLOAD_FOLDER,
+    exist_ok=True
+)
 
 os.makedirs(
     PROTECTED_FOLDER,
@@ -45,10 +60,14 @@ os.makedirs(
 )
 
 os.makedirs(
-    UPLOAD_FOLDER,
+    REPORT_FOLDER,
     exist_ok=True
 )
 
+
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/", methods=["GET"])
 def home():
@@ -57,6 +76,10 @@ def home():
         "index.html"
     )
 
+
+# =========================================================
+# TEXT ANALYSIS
+# =========================================================
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -84,13 +107,23 @@ def analyze():
     )
 
 
+# =========================================================
+# FILE ANALYSIS
+# =========================================================
+
 @app.route("/analyze-file", methods=["POST"])
 def analyze_file():
 
-    file = request.files.get("file")
+    file = request.files.get(
+        "file"
+    )
 
     if not file or not file.filename:
-        return "No file uploaded", 400
+
+        return (
+            "No file uploaded",
+            400
+        )
 
     filename = file.filename
 
@@ -99,101 +132,158 @@ def analyze_file():
         filename
     )
 
-    file.save(upload_path)
+    file.save(
+        upload_path
+    )
 
     try:
-        # --------------------------------------------
-        # Extract normal text for analysis
-        # --------------------------------------------
 
-        extracted_text = extract_text_from_file(
-            upload_path
-        )
-
-        # --------------------------------------------
-        # Extract text + positional information
-        # --------------------------------------------
+        # =================================================
+        # EXTRACT DOCUMENT DATA
+        # =================================================
+        #
+        # IMPORTANT:
+        #
+        # This is now the ONLY extraction call.
+        #
+        # For images:
+        #
+        #     extract_document_data()
+        #
+        # performs OCR once and provides both:
+        #
+        #     document_data["text"]
+        #
+        # and
+        #
+        #     document_data["words"]
+        #
+        # Previously the application called:
+        #
+        #     extract_text_from_file()
+        #
+        # and then:
+        #
+        #     extract_document_data()
+        #
+        # which caused OCR to run twice.
+        #
+        # =================================================
 
         document_data = extract_document_data(
             upload_path
         )
 
-        ocr_field_detections = detect_sensitive_fields_from_ocr(
-            document_data
+        # =================================================
+        # USE TEXT ALREADY EXTRACTED
+        # =================================================
+
+        extracted_text = document_data.get(
+            "text",
+            ""
         )
 
-        # --------------------------------------------
-        # Run privacy detection
-        # --------------------------------------------
+        # =================================================
+        # OCR FIELD DETECTION
+        # =================================================
+
+        ocr_field_detections = (
+            detect_sensitive_fields_from_ocr(
+                document_data
+            )
+        )
+
+        # =================================================
+        # RUN PRIVACY DETECTION
+        # =================================================
 
         result = analyze_text(
             extracted_text,
             document_name=filename
         )
 
-        if document_data.get("type") == "image":
+        # =================================================
+        # IMAGE DOCUMENT
+        # =================================================
+
+        if document_data.get(
+            "type"
+        ) == "image":
 
             existing_detections = result.get(
                 "detections",
                 []
             )
 
-            # --------------------------------------------
-            # Use OCR positional detections for images
-            # --------------------------------------------
+            # -------------------------------------------------
+            # Use OCR positional detections for images.
+            # -------------------------------------------------
 
             result["detections"] = (
+
                 ocr_field_detections
+
                 if ocr_field_detections
+
                 else existing_detections
             )
 
-        # --------------------------------------------
-        # Recalculate risk using final detections
-        # --------------------------------------------
-
-        from modules.risk_analyzer import calculate_risk
+        # =================================================
+        # RECALCULATE RISK
+        # =================================================
 
         result["risk"] = calculate_risk(
             result["detections"]
         )
 
-        # --------------------------------------------
-        # Create readable protected preview
-        # --------------------------------------------
+        # =================================================
+        # CREATE MASKED TEXT PREVIEW
+        # =================================================
 
-        if document_data.get("type") == "image":
+        if document_data.get(
+            "type"
+        ) == "image":
 
-            result["masked_text"] = create_masked_text_preview(
-                document_data,
-                result["detections"]
+            result["masked_text"] = (
+                create_masked_text_preview(
+                    document_data,
+                    result["detections"]
+                )
             )
 
         else:
 
-            result["masked_text"] = mask_text_by_values(
-                extracted_text,
-                result["detections"]
+            result["masked_text"] = (
+                mask_text_by_values(
+                    extracted_text,
+                    result["detections"]
+                )
             )
 
-        # --------------------------------------------
-        # IMPORTANT:
-        # Regenerate report AFTER OCR detections
-        # and risk have been updated.
-        # --------------------------------------------
+        # =================================================
+        # GENERATE PRIVACY REPORT
+        # =================================================
 
         result["report"] = generate_report(
             result,
             document_name=filename
         )
 
+        # =================================================
+        # STORE INFORMATION FOR /PROTECT
+        # =================================================
 
-        # --------------------------------------------
-        # Store information needed by /protect
-        # --------------------------------------------
+        result["original_file"] = (
+            upload_path
+        )
 
-        result["original_file"] = upload_path
-        result["document_data"] = document_data
+        result["document_data"] = (
+            document_data
+        )
+
+        # =================================================
+        # SHOW RESULT PAGE
+        # =================================================
 
         return render_template(
             "result.html",
@@ -203,11 +293,27 @@ def analyze_file():
 
     except Exception as error:
 
+        # -------------------------------------------------
+        # Log the actual error on Render.
+        # -------------------------------------------------
+
+        print(
+            f"ERROR PROCESSING FILE: {error}"
+        )
+
         return (
             f"Error processing file: {error}"
         ), 500
-    
-@app.route("/protect", methods=["POST"])
+
+
+# =========================================================
+# PROTECT DOCUMENT
+# =========================================================
+
+@app.route(
+    "/protect",
+    methods=["POST"]
+)
 def protect():
 
     masked_text = request.form.get(
@@ -226,15 +332,24 @@ def protect():
     )
 
     if not result_json:
-        return "No analysis result provided", 400
+
+        return (
+            "No analysis result provided",
+            400
+        )
 
     try:
-        import json
 
-        result = json.loads(result_json)
+        result = json.loads(
+            result_json
+        )
 
     except Exception:
-        return "Invalid analysis result", 400
+
+        return (
+            "Invalid analysis result",
+            400
+        )
 
     detections = result.get(
         "detections",
@@ -250,16 +365,36 @@ def protect():
     )
 
     if not original_file:
-        return "Original file information is missing", 400
 
-    if not os.path.exists(original_file):
-        return "Original uploaded file not found", 404
+        return (
+            "Original file information is missing",
+            400
+        )
+
+    if not os.path.exists(
+        original_file
+    ):
+
+        return (
+            "Original uploaded file not found",
+            404
+        )
 
     if not document_data:
-        return "Document position data is missing", 400
+
+        return (
+            "Document position data is missing",
+            400
+        )
+
+    # =====================================================
+    # PROTECTED FILE NAME
+    # =====================================================
 
     base_name = os.path.splitext(
-        os.path.basename(document_name)
+        os.path.basename(
+            document_name
+        )
     )[0]
 
     protected_filename = (
@@ -271,10 +406,9 @@ def protect():
         protected_filename
     )
 
-    # --------------------------------------------
-    # Create protected document using ORIGINAL
-    # document and positional information.
-    # --------------------------------------------
+    # =====================================================
+    # CREATE PROTECTED DOCUMENT
+    # =====================================================
 
     create_protected_pdf(
         original_file,
@@ -283,9 +417,9 @@ def protect():
         document_data
     )
 
-    # --------------------------------------------
-    # Generate privacy report
-    # --------------------------------------------
+    # =====================================================
+    # GENERATE PRIVACY REPORT
+    # =====================================================
 
     report_filename = (
         f"{base_name}_privacy_report.pdf"
@@ -297,29 +431,46 @@ def protect():
     )
 
     generate_privacy_report_pdf(
-    report_path,
-    result,
-    document_name
-)
+        report_path,
+        result,
+        document_name
+    )
+
+    # =====================================================
+    # PROTECTED PAGE
+    # =====================================================
 
     return render_template(
-    "protected.html",
-    protected_filename=protected_filename,
-    protected_file=protected_filename,
-    report_filename=report_filename,
-    document_name=document_name,
-    result=result
-)
+        "protected.html",
+        protected_filename=protected_filename,
+        protected_file=protected_filename,
+        report_filename=report_filename,
+        document_name=document_name,
+        result=result
+    )
 
-@app.route("/download-protected/<filename>")
-def download_protected(filename):
+
+# =========================================================
+# DOWNLOAD PROTECTED DOCUMENT
+# =========================================================
+
+@app.route(
+    "/download-protected/<filename>"
+)
+def download_protected(
+    filename
+):
 
     file_path = os.path.join(
-        app.config["PROTECTED_FOLDER"],
+        app.config[
+            "PROTECTED_FOLDER"
+        ],
         filename
     )
 
-    if not os.path.isfile(file_path):
+    if not os.path.isfile(
+        file_path
+    ):
 
         return render_template(
             "index.html",
@@ -332,15 +483,28 @@ def download_protected(filename):
         download_name=filename
     )
 
-@app.route("/download-report/<filename>")
-def download_report(filename):
+
+# =========================================================
+# DOWNLOAD PRIVACY REPORT
+# =========================================================
+
+@app.route(
+    "/download-report/<filename>"
+)
+def download_report(
+    filename
+):
 
     file_path = os.path.join(
-        app.config["REPORT_FOLDER"],
+        app.config[
+            "REPORT_FOLDER"
+        ],
         filename
     )
 
-    if not os.path.isfile(file_path):
+    if not os.path.isfile(
+        file_path
+    ):
 
         return render_template(
             "index.html",
@@ -353,6 +517,10 @@ def download_report(filename):
         download_name=filename
     )
 
+
+# =========================================================
+# RUN APPLICATION
+# =========================================================
 
 if __name__ == "__main__":
 
