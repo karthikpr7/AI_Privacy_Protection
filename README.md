@@ -1,4 +1,70 @@
-wnload
+# AI-Based Privacy Protection
+
+An AI-based privacy protection system that detects high-risk sensitive information in text and documents, analyzes privacy risk, partially masks sensitive information, and generates protected documents and privacy reports.
+
+---
+
+## 📌 Project Overview
+
+**AI-Based Privacy Protection** is a web-based privacy protection system developed using **Python and Flask**.
+
+The system combines a **100,000-record trained spaCy Named Entity Recognition (NER) model**, **Regex-based detection**, and **OCR-based document analysis** to identify high-risk sensitive information.
+
+The system is designed to avoid unnecessary masking. Common personal information such as names, email addresses, phone numbers, addresses, dates, websites, IP addresses, and MAC addresses are intentionally ignored.
+
+After detecting approved sensitive information, the system:
+
+- Identifies high-risk sensitive information
+- Calculates a privacy score
+- Determines the privacy risk level
+- Partially masks sensitive information
+- Generates a protected document
+- Generates a professional privacy report PDF
+- Allows users to download the protected document
+- Allows users to download the privacy report
+
+---
+
+## 🎯 Objectives
+
+The main objectives of this project are:
+
+1. Detect high-risk sensitive information automatically.
+2. Use AI-based NER for contextual sensitive-information detection.
+3. Use Regex for structured sensitive-information detection.
+4. Use OCR for detecting sensitive information in image-based documents.
+5. Combine NER, Regex, and OCR detection results.
+6. Remove duplicate and overlapping detections.
+7. Ignore unnecessary personal information and unrelated NER entities.
+8. Calculate privacy risk based on detected sensitive information.
+9. Partially mask high-risk sensitive information.
+10. Generate protected documents while preserving the original document layout as closely as possible.
+11. Generate a privacy analysis report.
+12. Provide an easy-to-use Flask web interface.
+
+---
+
+## ✨ Features
+
+- AI-based sensitive-information detection
+- 100K-record trained spaCy NER model
+- Regex-based structured detection
+- OCR-based document detection
+- Hybrid NER + Regex detection
+- Image/document sensitive-field detection
+- Duplicate and overlapping detection handling
+- Strict sensitive-label filtering
+- False-positive reduction
+- Privacy score calculation
+- Risk-level classification
+- Partial sensitive-information masking
+- PDF text extraction
+- Image OCR
+- Protected document generation
+- Privacy report PDF generation
+- Text analysis
+- Document analysis
+- Protected document download
 - Privacy report download
 - Flask web application
 
@@ -8,7 +74,7 @@ wnload
 
 The final system focuses only on approved high-risk sensitive information.
 
-### Sensitive information detected and protected
+### Sensitive Information Detected and Protected
 
 The system can detect and mask categories such as:
 
@@ -135,9 +201,9 @@ The project uses multiple detection methods because different types of sensitive
 
 The trained spaCy NER model is used for contextual detection.
 
-For example, the model can identify structured sensitive information based on the surrounding text and context.
+The application filters the NER output so that only approved sensitive labels are considered for privacy protection.
 
-The application then filters the NER output so that only approved sensitive labels are considered.
+This filtering also helps reduce false positives from unrelated entities.
 
 ---
 
@@ -156,22 +222,22 @@ rahulsharma@okicici
 
 Regex validation helps improve the reliability of structured identifier detection.
 
-For example, credit-card numbers can be validated using additional pattern and checksum validation.
+Credit-card numbers are also checked using additional validation.
 
 3. OCR Detection
 
-For image-based documents and scanned documents, the system uses OCR to extract text and identify sensitive fields.
+For image-based and scanned documents, the system uses OCR to extract text and identify sensitive fields.
 
 The OCR process:
 
-Reads text from the uploaded image/document.
+Reads text from the uploaded document.
 Identifies field labels such as PAN Number, Aadhaar Number, Bank Account Number, etc.
 Locates the corresponding sensitive value.
 Determines the position of the value in the document.
-Sends the detected information for risk analysis and masking.
-Uses the detected coordinates to mask the sensitive information at its original location.
+Sends the detected information for risk analysis.
+Uses the detected coordinates to mask the sensitive information at its original position.
 
-This allows the system to protect sensitive information in document images while preserving the original document design as closely as possible.
+This allows the system to protect sensitive information in document images while preserving the original document layout as closely as possible.
 
 4. Combining Results
 
@@ -195,47 +261,76 @@ Not every detected personal entity is automatically masked.
 
 Only approved high-risk sensitive information is masked.
 
-Example
 Name
+
+Input:
+
 Rahul Sharma
 
-Remains unchanged:
+Output:
 
 Rahul Sharma
+
+Names are intentionally left unchanged.
+
 Email
+
+Input:
+
 rahul@gmail.com
 
-Remains unchanged:
+Output:
 
 rahul@gmail.com
+
+Email addresses are intentionally left unchanged.
+
 Phone
+
+Input:
+
 +91 9876543210
 
-Remains unchanged:
+Output:
 
 +91 9876543210
+
+Phone numbers are intentionally left unchanged.
+
 PAN
+
+Input:
+
 ABCDE1234F
 
-Becomes:
+Output:
 
 ABC*****4F
 Aadhaar
+
+Input:
+
 1234 5678 9012
 
-Becomes:
+Output:
 
 **** **** 9012
 Credit Card
+
+Input:
+
 4111 1111 1111 1111
 
-Becomes:
+Output:
 
 **** **** **** 1111
 UPI ID
+
+Input:
+
 rahulsharma@okicici
 
-Becomes:
+Output:
 
 ***************@***icici
 
@@ -262,7 +357,7 @@ Total PII Detected: 9
 Privacy Score: 100/100
 Risk Level: CRITICAL
 
-The system also generates a privacy recommendation based on the detected risk.
+The system also generates a recommendation based on the detected risk.
 
 🔄 System Workflow
                          User
@@ -303,7 +398,7 @@ The system also generates a privacy recommendation based on the detected risk.
                             v                  v
                         Download           Download
 
-For image/scanned documents, OCR is additionally used:
+For image/scanned documents:
 
 File Upload
      |
@@ -594,9 +689,7 @@ Detected sensitive categories
 Privacy recommendation
 🧪 Testing
 
-The project includes test files for validating the complete privacy-protection workflow.
-
-The application was tested through:
+The application was tested through the complete privacy-protection workflow:
 
 Document Upload
        ↓
@@ -653,7 +746,7 @@ Improved OCR accuracy for difficult scanned documents
 Support for additional document formats such as DOCX
 Multilingual PII detection
 Improved contextual sensitive-information detection
-Improved detection of difficult PII categories
+Improved detection of difficult sensitive-information categories
 User-configurable masking policies
 Authentication and authorization
 Database-based audit logs
