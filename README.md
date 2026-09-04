@@ -1,98 +1,78 @@
-# AI-Based Privacy Protection
-
-An AI-based privacy protection system that detects Personally Identifiable Information (PII) in text and documents, analyzes privacy risk, partially masks sensitive information, and generates protected documents and privacy reports.
-
----
-
-## 📌 Project Overview
-
-**AI-Based Privacy Protection** is a web-based privacy protection system developed using Python and Flask.
-
-The system combines a **100,000-record trained spaCy Named Entity Recognition (NER) model** with **Regex-based detection** to identify sensitive personal information.
-
-After detecting PII, the system:
-
-- Identifies sensitive information
-- Calculates a privacy score
-- Determines the privacy risk level
-- Partially masks sensitive information
-- Generates a protected PDF
-- Generates a professional privacy report PDF
-- Allows users to download the protected document and privacy report
-
----
-
-## 🎯 Objectives
-
-The main objectives of this project are:
-
-1. Detect sensitive personal information automatically.
-2. Use AI-based NER for contextual PII detection.
-3. Use Regex for structured PII detection.
-4. Combine NER and Regex detection results.
-5. Calculate privacy risk.
-6. Protect sensitive information through masking.
-7. Generate a protected document.
-8. Generate a privacy analysis report.
-9. Provide an easy-to-use web interface.
-
----
-
-## ✨ Features
-
-- AI-based PII detection
-- 100K-record trained NER model
-- Regex-based PII detection
-- Hybrid NER + Regex detection
-- Duplicate and overlapping detection handling
-- Privacy score calculation
-- Risk-level classification
-- Partial PII masking
-- PDF/document text extraction
-- Protected PDF generation
-- Professional privacy report PDF
-- Text analysis
-- Document analysis
-- Download protected document
-- Download privacy report
+wnload
+- Privacy report download
 - Flask web application
 
 ---
 
-## 🔍 PII Detection
+## 🔍 Sensitive Information Detection
 
-The system can detect multiple categories of Personally Identifiable Information.
+The final system focuses only on approved high-risk sensitive information.
 
-The supported entity categories include:
+### Sensitive information detected and protected
 
-- GIVENNAME
-- SURNAME
-- EMAIL
-- TELEPHONENUM
+The system can detect and mask categories such as:
+
 - PAN
-- AADHAAR
-- CREDITCARDNUMBER
-- PASSPORTNUM
-- DRIVERLICENSENUM
-- IDCARDNUM
-- TAXNUM
-- SOCIALNUM
-- CITY
-- STREET
-- ZIPCODE
-- DATE
-- TIME
-- AGE
-- GENDER
-- SEX
-- TITLE
-- BUILDINGNUM
+- Aadhaar
+- Passport Number
+- Driving Licence Number
+- Voter ID
+- Bank Account Number
+- IFSC Code
+- Credit Card Number
+- Debit Card Number
+- UPI ID
+- Password
+- API Key
+- Access Token
+- Secret Key
+
+The system uses both AI-based detection and rule-based detection depending on the type of sensitive information.
+
+---
+
+## 🚫 Information Intentionally Ignored
+
+The system is designed to avoid unnecessary privacy masking.
+
+The following information is intentionally ignored and remains unchanged:
+
+- Names
+- Given names
+- Surnames
+- Email addresses
+- Phone numbers
+- Addresses
+- Building numbers
+- Street names
+- City names
+- ZIP/PIN codes
+- Dates
+- Date of Birth
+- Time
+- Age
+- Gender
+- Sex
+- Titles
+- Website URLs
+- Hyperlinks
+- Domain names
+- Social-media links
+- IP addresses
+- MAC addresses
+- Normal numbers
+- Normal dates
+- Unknown or unapproved NER entities
+
+This prevents normal personal information from being incorrectly treated as a high-risk privacy threat.
 
 ---
 
 ## 🤖 AI Model
 
-A spaCy Named Entity Recognition (NER) model was trained using **100,000 records** from the PII dataset.
+A spaCy **Named Entity Recognition (NER)** model was trained using **100,000 records** from the PII dataset.
+
+The trained model is used to identify sensitive information based on the context in which it appears.
 
 ### Training Details
 
@@ -102,17 +82,15 @@ A spaCy Named Entity Recognition (NER) model was trained using **100,000 records
 | Framework | spaCy |
 | Model Type | Named Entity Recognition |
 | Validation Dataset | `dev_validation.jsonl` |
-| Best Model | `privacy_ner_100k/best` |
+| Model Directory | `models/privacy_ner_100k/final/` |
 
-The trained model is stored locally and is excluded from GitHub using `.gitignore`.
-
-The model can be recreated using the training scripts provided in this repository.
+The trained model is included in the repository so that the application can load the trained model during execution and deployment.
 
 ---
 
 ## 📊 Model Performance
 
-The final 100K NER model achieved the following validation performance:
+The final 100K-record NER model achieved the following validation performance:
 
 | Metric | Score |
 |---|---:|
@@ -145,136 +123,204 @@ The final 100K NER model achieved the following validation performance:
 | TITLE | 98.36% | 98.36% | 98.36% |
 | ZIPCODE | 86.67% | 82.98% | 84.78% |
 
+**Note:** The NER model was trained on a broader set of PII entity types. The application applies a strict allowlist so that only approved high-risk sensitive categories are considered for privacy protection.
+
 ---
 
 ## 🔀 Hybrid Detection
 
-The project uses two complementary PII detection methods.
+The project uses multiple detection methods because different types of sensitive information require different approaches.
 
 ### 1. NER Detection
 
-The trained spaCy NER model is used to detect contextual entities.
+The trained spaCy NER model is used for contextual detection.
 
-For example:
+For example, the model can identify structured sensitive information based on the surrounding text and context.
 
-```text
-Rahul Sharma
+The application then filters the NER output so that only approved sensitive labels are considered.
 
-can be identified by the NER model as a personal name entity.
+---
 
-2. Regex Detection
+### 2. Regex Detection
 
-Regex detection is used for structured PII patterns.
+Regex detection is used for structured sensitive-information patterns.
 
 Examples include:
 
-rahul@gmail.com
-+91 9876543210
+```text
 ABCDE1234F
 1234 5678 9012
 4111 1111 1111 1111
-3. Combining Results
+SBIN0001234
+rahulsharma@okicici
 
-The system combines the NER and Regex results.
+Regex validation helps improve the reliability of structured identifier detection.
 
-Overlapping duplicate detections are removed so that the same information is not reported multiple times.
+For example, credit-card numbers can be validated using additional pattern and checksum validation.
 
-Regex detections receive priority when both detection methods identify overlapping text.
+3. OCR Detection
 
-🔐 Privacy Protection
+For image-based documents and scanned documents, the system uses OCR to extract text and identify sensitive fields.
 
-The system separates PII detection from PII masking.
+The OCR process:
 
-Names are intentionally kept visible:
+Reads text from the uploaded image/document.
+Identifies field labels such as PAN Number, Aadhaar Number, Bank Account Number, etc.
+Locates the corresponding sensitive value.
+Determines the position of the value in the document.
+Sends the detected information for risk analysis and masking.
+Uses the detected coordinates to mask the sensitive information at its original location.
 
+This allows the system to protect sensitive information in document images while preserving the original document design as closely as possible.
+
+4. Combining Results
+
+The NER and Regex detection results are combined.
+
+The system:
+
+Filters unapproved entity labels.
+Removes duplicate detections.
+Handles overlapping detections.
+Gives priority to Regex results when both methods detect the same information.
+Keeps only approved high-risk sensitive categories.
+
+This reduces false positives and prevents the same sensitive information from being reported multiple times.
+
+🔐 Privacy Protection and Masking
+
+The project separates detection from masking.
+
+Not every detected personal entity is automatically masked.
+
+Only approved high-risk sensitive information is masked.
+
+Example
+Name
 Rahul Sharma
 
-Sensitive information is partially masked.
+Remains unchanged:
 
+Rahul Sharma
 Email
 rahul@gmail.com
 
-becomes:
+Remains unchanged:
 
-r***l@gmail.com
-Phone Number
+rahul@gmail.com
+Phone
 +91 9876543210
 
-becomes:
+Remains unchanged:
 
-+91******3210
++91 9876543210
 PAN
 ABCDE1234F
 
-becomes:
+Becomes:
 
 ABC*****4F
 Aadhaar
 1234 5678 9012
 
-becomes:
+Becomes:
 
 **** **** 9012
 Credit Card
 4111 1111 1111 1111
 
-becomes:
+Becomes:
 
 **** **** **** 1111
+UPI ID
+rahulsharma@okicici
 
-This approach protects sensitive identifiers while keeping selected information readable.
+Becomes:
+
+***************@***icici
+
+The masking approach keeps limited information visible where appropriate while hiding the sensitive portion of the identifier.
 
 ⚠️ Privacy Risk Analysis
 
-The system analyzes the detected PII and calculates a privacy score.
+The system calculates a privacy score based on the detected high-risk sensitive information.
 
-It also classifies the privacy risk into a risk level.
+Each approved sensitive category has an associated risk weight.
 
-Example:
+The system then determines the overall privacy risk level.
 
-Total PII Detected: 6
+Risk Levels
+Privacy Score	Risk Level
+0–25	LOW
+26–50	MEDIUM
+51–75	HIGH
+Above 75	CRITICAL
+
+For example:
+
+Total PII Detected: 9
 Privacy Score: 100/100
 Risk Level: CRITICAL
 
-The system also provides a recommendation based on the identified privacy risk.
+The system also generates a privacy recommendation based on the detected risk.
 
 🔄 System Workflow
-                    User
-                     |
-                     v
-              Flask Web Interface
-                     |
-             +-------+-------+
-             |               |
-             v               v
-        Text Input       File Upload
-                             |
-                             v
-                     Text Extraction
-                             |
-              +--------------+--------------+
-              |                             |
-              v                             v
-        100K NER Model                   Regex
-              |                             |
-              +--------------+--------------+
-                             |
-                             v
-                    Combine Results
-                             |
-                             v
-                     Risk Analysis
-                             |
-                             v
-                        Masking
-                             |
-                   +---------+---------+
-                   |                   |
-                   v                   v
-             Protected PDF      Privacy Report PDF
-                   |                   |
-                   v                   v
-               Download            Download
+                         User
+                           |
+                           v
+                 Flask Web Interface
+                           |
+                 +---------+---------+
+                 |                   |
+                 v                   v
+             Text Input         File Upload
+                 |                   |
+                 |                   v
+                 |             Text Extraction
+                 |                   |
+                 |          +--------+--------+
+                 |          |                 |
+                 |          v                 v
+                 |      100K NER          Regex
+                 |          |                 |
+                 |          +--------+--------+
+                 |                   |
+                 |                   v
+                 |            Combine Results
+                 |                   |
+                 |                   v
+                 |             Risk Analysis
+                 |                   |
+                 |                   v
+                 |                Masking
+                 |                   |
+                 |          +--------+--------+
+                 |          |                 |
+                 v          v                 v
+             Analysis   Protected       Privacy Report
+                         Document             PDF
+                            |                  |
+                            v                  v
+                        Download           Download
+
+For image/scanned documents, OCR is additionally used:
+
+File Upload
+     |
+     v
+OCR Text Extraction
+     |
+     v
+Sensitive Field Detection
+     |
+     v
+Locate Sensitive Value
+     |
+     v
+Mask at Original Position
+     |
+     v
+Protected Document
 🛠️ Technologies Used
 Backend
 Python
@@ -282,19 +328,27 @@ Flask
 Artificial Intelligence
 spaCy
 Named Entity Recognition (NER)
-PII Detection
+100K-record trained NER model
+Hybrid AI + rule-based detection
+Pattern Detection
 Regular Expressions
-Hybrid NER + Regex detection
-Document Processing
+Structured identifier validation
+Credit-card validation
+OCR and Document Processing
 PyMuPDF
+Tesseract OCR
+Pillow
+Image processing
+Report Generation
 ReportLab
 Frontend
 HTML
 CSS
 JavaScript
-Version Control
+Version Control and Deployment
 Git
 GitHub
+Render
 📁 Project Structure
 AI_Privacy_Protection/
 │
@@ -304,6 +358,14 @@ AI_Privacy_Protection/
 │   └── processed/
 │       ├── large_train.jsonl
 │       └── dev_validation.jsonl
+│
+├── models/
+│   └── privacy_ner_100k/
+│       └── final/
+│           ├── config.cfg
+│           ├── meta.json
+│           ├── ner/
+│           └── vocab/
 │
 ├── modules/
 │   ├── __init__.py
@@ -352,12 +414,13 @@ The final training dataset contains:
 
 100,000 training records
 
-The validation dataset is used to evaluate the trained NER model.
+A separate validation dataset is used to evaluate the trained NER model.
 
-The raw dataset is kept locally and excluded from the GitHub repository.
+The training and validation data are processed using the scripts available in the training/ directory.
 
-The processed datasets used by the project are included in the repository where appropriate.
+The trained model is stored in:
 
+models/privacy_ner_100k/final/
 🚀 Installation
 1. Clone the Repository
 git clone https://github.com/karthikpr7/AI_Privacy_Protection.git
@@ -374,7 +437,10 @@ venv\Scripts\activate
 
 Install the required Python packages:
 
-pip install flask spacy reportlab pymupdf
+pip install flask spacy reportlab pymupdf pytesseract pillow
+
+Tesseract OCR must also be installed separately for OCR-based image/document analysis.
+
 🧠 Train the NER Model
 
 The project uses a 100K-record training dataset.
@@ -386,13 +452,13 @@ python training/train_large.py
 Evaluate the Model
 python training/evaluate_100k.py
 
-The trained model will be generated in:
+The trained model is generated under:
 
 models/privacy_ner_100k/
 
-The best model is stored in:
+The final model used by the application is:
 
-models/privacy_ner_100k/best/
+models/privacy_ner_100k/final/
 ▶️ Run the Application
 
 Start the Flask application:
@@ -408,89 +474,162 @@ Open this address in a web browser.
 🖥️ How to Use
 Text Analysis
 Open the web application.
-Enter text containing personal information.
+Enter text containing sensitive information.
 Click Analyze Text.
-Review the detected PII.
-Review the privacy score and risk level.
-Review the partially masked text.
-Click Protect Document.
-Download the protected PDF.
-Download the privacy report PDF.
+Review the detected sensitive information.
+Review the privacy score.
+Review the privacy risk level.
+Review the partially masked information.
+Use the protection option when required.
+Download the protected document.
+Download the privacy report.
 Document Analysis
 Open the web application.
-Select a document.
+Select a supported document.
 Click Analyze Document.
-The system extracts the text from the document.
-The system detects PII using NER and Regex.
-Review the detected PII and privacy risk.
+The system extracts text from the document.
+OCR is used when required for image-based documents.
+The system detects approved sensitive information.
+Review the detected sensitive information.
+Review the privacy score and risk level.
 Click Protect Document.
 Download the protected document.
 Download the privacy report.
+📄 Supported File Types
+
+The current document-processing workflow supports:
+
+PDF
+PNG
+JPG
+JPEG
+
+The system can process text-based PDFs and image-based/scanned documents using OCR.
+
 🧪 Example
 Input
 Contact Rahul Sharma at rahul@gmail.com.
+
 My phone number is +91 9876543210.
+
 My PAN is ABCDE1234F.
+
 My Aadhaar is 1234 5678 9012.
+
+My passport number is A1234567.
+
+My bank account is 123456789012.
+
+My IFSC is SBIN0001234.
+
 My card number is 4111 1111 1111 1111.
-Detected PII
-GIVENNAME
-EMAIL
-TELEPHONENUM
+
+My UPI ID is rahulsharma@okicici.
+Detection Result
+
+The system detects the approved sensitive information:
+
 PAN
 AADHAAR
+PASSPORTNUM
+BANK_ACCOUNT
+IFSC
 CREDITCARDNUMBER
+UPIID
+
+Names, email addresses, and phone numbers are intentionally ignored.
+
 Protected Output
-Contact Rahul Sharma at r***l@gmail.com.
-My phone number is +91******3210.
+Contact Rahul Sharma at rahul@gmail.com.
+
+My phone number is +91 9876543210.
+
 My PAN is ABC*****4F.
+
 My Aadhaar is **** **** 9012.
+
+My passport number is ****4567.
+
+My bank account is ********9012.
+
+My IFSC is *******1234.
+
 My card number is **** **** **** 1111.
-Risk Result
-Total PII Detected: 6
+
+My UPI ID is ***************@***icici.
+
+The exact protected output depends on the detected values and masking rules.
+
+📊 Example Risk Result
+
+For a document containing several high-risk sensitive identifiers:
+
+Total PII Detected: 9
+
 Privacy Score: 100/100
+
 Risk Level: CRITICAL
+
+The system generates a recommendation based on the detected risk.
+
 📄 Generated Files
 
 The application generates two main outputs.
 
-Protected PDF
+Protected Document
 
-The protected PDF contains the partially masked sensitive information.
+The protected document contains partially masked sensitive information.
+
+For uploaded image/document files, the system uses the detected positions of sensitive values to apply masking while preserving the original document layout as closely as possible.
 
 Privacy Report PDF
 
 The privacy report contains information such as:
 
 Document name
-Total PII detected
+Total sensitive information detected
 Privacy score
 Risk level
-Detected PII categories
+Detected sensitive categories
 Privacy recommendation
 🧪 Testing
 
-The project includes a test PDF:
+The project includes test files for validating the complete privacy-protection workflow.
 
-test_files/privacy_test_valid.pdf
-
-The application was tested through the complete workflow:
+The application was tested through:
 
 Document Upload
        ↓
-Text Extraction
+Text/OCR Extraction
        ↓
-PII Detection
+Sensitive Information Detection
+       ↓
+NER + Regex Combination
+       ↓
+False-Positive Filtering
        ↓
 Risk Analysis
        ↓
 Masking
        ↓
-Protected PDF
+Protected Document
        ↓
 Privacy Report PDF
        ↓
 Download
+
+Testing includes:
+
+Sensitive-information detection
+False-positive filtering
+Multiple sensitive categories
+OCR-based detection
+UPI detection
+Sensitive-information masking
+Privacy score calculation
+Risk-level calculation
+Protected document generation
+Privacy report generation
 
 The complete application workflow was successfully tested.
 
@@ -502,44 +641,40 @@ Do not use real sensitive personal information while testing the application.
 
 Use synthetic or test data whenever possible.
 
-The following files are intentionally excluded from the GitHub repository:
+The project follows a strict detection policy so that only approved high-risk sensitive information is considered for protection.
 
-Virtual environment
-Trained model files
-Raw dataset files
-Uploaded documents
-Generated output files
-Python cache files
-
-These files are excluded through .gitignore.
+Sensitive information is not intentionally stored as part of the application's normal analysis workflow.
 
 🔮 Future Improvements
 
 Possible future improvements include:
 
-Improved OCR for scanned documents
-Support for additional document formats
+Improved OCR accuracy for difficult scanned documents
+Support for additional document formats such as DOCX
 Multilingual PII detection
-Improved contextual PII detection
+Improved contextual sensitive-information detection
+Improved detection of difficult PII categories
 User-configurable masking policies
 Authentication and authorization
 Database-based audit logs
-Cloud deployment
+Advanced document layout preservation
 More extensive real-world evaluation
-Improved detection of difficult PII categories
+Improved document-processing performance
 👨‍💻 Project Information
 
 Project Title: AI-Based Privacy Protection
 
-Technology: Python, Flask, spaCy, Regex, PyMuPDF, ReportLab
+Technology: Python, Flask, spaCy, Regex, PyMuPDF, Tesseract OCR, Pillow, ReportLab
 
 Training Dataset Size: 100,000 records
 
-Precision: 91.47%
+NER Precision: 91.47%
 
-Recall: 90.64%
+NER Recall: 90.64%
 
-F1-score: 91.05%
+NER F1-score: 91.05%
+
+Deployment: Flask application deployed using Render
 
 📌 Disclaimer
 
