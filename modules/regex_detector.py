@@ -2,74 +2,124 @@ import re
 
 
 # ============================================================
-# Regular expressions
+# BASIC PATTERNS
 # ============================================================
 
 PATTERNS = {
 
-    # Email address
-    "EMAIL": re.compile(
-        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
-    ),
-
-    # Indian mobile / telephone numbers
-    "TELEPHONENUM": re.compile(
-        r"(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)"
-    ),
-
-    # Indian PAN
     "PAN": re.compile(
         r"(?<![A-Z0-9])[A-Z]{5}[0-9]{4}[A-Z](?![A-Z0-9])",
         re.IGNORECASE
     ),
 
-   "CREDITCARDNUMBER": re.compile(
-    r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"
-),
+    "CREDITCARDNUMBER": re.compile(
+        r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"
+    ),
 
-"AADHAAR": re.compile(
-    r"(?<!\d)\d{4}(?:[\s-]\d{4}){2}(?!\d)"
-),
+    "AADHAAR": re.compile(
+        r"(?<!\d)\d{4}(?:[\s-]\d{4}){2}(?!\d)"
+    ),
 
-"IFSC": re.compile(
-    r"(?<![A-Z0-9])[A-Z]{4}0[A-Z0-9]{6}(?![A-Z0-9])",
-    re.IGNORECASE
-),
-
-"BANK_ACCOUNT": re.compile(
-    r"(?<![\d+])\d{9,18}(?!\d)"
-),
-
+    "IFSC": re.compile(
+        r"(?<![A-Z0-9])[A-Z]{4}0[A-Z0-9]{6}(?![A-Z0-9])",
+        re.IGNORECASE
+    ),
 }
 
 
 # ============================================================
-# Validation helpers
+# CONTEXT PATTERNS
+# ============================================================
+
+BANK_ACCOUNT_CONTEXT = re.compile(
+    r"(?i)"
+    r"(?:bank\s+account|account|a/c)"
+    r"(?:\s+number|\s+no\.?|\s*#)?"
+    r"\s*[:\-]?\s*"
+    r"(\d{9,18})"
+)
+
+
+PASSPORT_CONTEXT = re.compile(
+    r"(?i)"
+    r"passport"
+    r"\s*(?:number|no\.?)?"
+    r"\s*[:\-]?\s*"
+    r"([A-Z][0-9]{7})"
+)
+
+
+DRIVING_LICENSE_CONTEXT = re.compile(
+    r"(?i)"
+    r"(?:driving\s+license|driving\s+licence|dl)"
+    r"\s*(?:number|no\.?)?"
+    r"\s*[:\-]?\s*"
+    r"([A-Z0-9]{2,4}\s?[A-Z0-9]{2,4}\s?[A-Z0-9]{4,14})"
+)
+
+
+VOTER_CONTEXT = re.compile(
+    r"(?i)"
+    r"(?:voter\s*id|voter)"
+    r"\s*(?:number|no\.?)?"
+    r"\s*[:\-]?\s*"
+    r"([A-Z]{3}[0-9]{7})"
+)
+
+
+UPI_CONTEXT = re.compile(
+    r"(?i)"
+    r"(?:upi\s*(?:id|number)?|upi)"
+    r"\s*[:\-]?\s*"
+    r"([A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]*)"
+)
+
+
+# Credit card specifically after "Credit Card Number".
+# This lets us handle OCR mistakes without weakening
+# the general credit-card detector.
+CREDIT_CARD_CONTEXT = re.compile(
+    r"(?i)"
+    r"credit\s+card"
+    r"\s*(?:number|no\.?)?"
+    r"\s*[:\-]?\s*"
+    r"([0-9O\s-]{13,25})"
+)
+
+
+# IFSC specifically after "IFSC Code".
+IFSC_CONTEXT = re.compile(
+    r"(?i)"
+    r"ifsc"
+    r"\s*(?:code|number|no\.?)?"
+    r"\s*[:\-]?\s*"
+    r"([A-Z0-9]{11})"
+)
+
+
+# ============================================================
+# VALIDATION
 # ============================================================
 
 def digits_only(value):
-    """Return only numeric characters."""
-    return re.sub(r"\D", "", value)
+    return re.sub(r"\D", "", str(value))
 
 
 def luhn_check(number):
-    """
-    Validate a card number using the Luhn algorithm.
-    """
 
     digits = digits_only(number)
 
-    if not 13 <= len(digits) <= 19:
+    if not digits:
         return False
 
     total = 0
-    parity = len(digits) % 2
 
-    for index, digit in enumerate(digits):
+    for index, digit in enumerate(reversed(digits)):
 
         value = int(digit)
 
-        if index % 2 == parity:
+        if index % 2 == 1:
+
             value *= 2
 
             if value > 9:
@@ -81,182 +131,463 @@ def luhn_check(number):
 
 
 def validate_card(value):
-    """Return True when the card number passes Luhn validation."""
-    return luhn_check(value)
+
+    digits = digits_only(value)
+
+    if not 13 <= len(digits) <= 19:
+        return False
+
+    return luhn_check(digits)
+
+
+def correct_ocr_card(value):
+
+    """
+    Correct common OCR mistakes in a credit-card value.
+
+    This is used ONLY when the text occurs after
+    'Credit Card Number'.
+
+    Example:
+
+    4111 1111 11114 1111
+                  ^
+                  extra OCR digit
+
+    becomes:
+
+    4111 1111 1111 1111
+    """
+
+    original = str(value).strip()
+
+    # OCR often reads O as 0.
+    normalized = original.replace("O", "0").replace("o", "0")
+
+    digits = digits_only(normalized)
+
+    # Already valid.
+    if validate_card(digits):
+
+        return format_card_like_original(
+            digits,
+            original
+        )
+
+    # --------------------------------------------------------
+    # Try removing ONE OCR-inserted digit.
+    # --------------------------------------------------------
+
+    for index in range(len(digits)):
+
+        candidate = (
+            digits[:index]
+            + digits[index + 1:]
+        )
+
+        if validate_card(candidate):
+
+            return format_card_like_original(
+                candidate,
+                original
+            )
+
+    return None
+
+
+def format_card_like_original(
+    digits,
+    original
+):
+    """
+    Keep normal 4-digit grouping where possible.
+    """
+
+    if len(digits) == 16:
+
+        return (
+            digits[0:4]
+            + " "
+            + digits[4:8]
+            + " "
+            + digits[8:12]
+            + " "
+            + digits[12:16]
+        )
+
+    return digits
 
 
 def validate_pan(value):
-    """Basic PAN format validation."""
-
-    value = value.upper()
 
     return bool(
         re.fullmatch(
             r"[A-Z]{5}[0-9]{4}[A-Z]",
-            value
+            str(value).strip().upper()
         )
     )
 
 
 def validate_aadhaar(value):
-    """
-    Basic Aadhaar structural validation.
 
-    This checks the 12-digit structure but does not attempt
-    to verify whether the number belongs to a real person.
-    """
-
-    digits = digits_only(value)
-
-    return len(digits) == 12
+    return len(
+        digits_only(value)
+    ) == 12
 
 
 def validate_ifsc(value):
-    """Basic IFSC format validation."""
 
     return bool(
         re.fullmatch(
             r"[A-Z]{4}0[A-Z0-9]{6}",
-            value.upper()
+            str(value).strip().upper()
         )
     )
 
-def overlaps_with_existing(result, results):
-    """
-    Check whether a detection overlaps an existing detection.
-    """
-    for existing in results:
-        if (
-            result["start"] < existing["end"]
-            and result["end"] > existing["start"]
-        ):
-            return True
 
-    return False
+def validate_passport(value):
+
+    return bool(
+        re.fullmatch(
+            r"[A-Z][0-9]{7}",
+            str(value).strip().upper()
+        )
+    )
+
+
+def validate_voter_id(value):
+
+    return bool(
+        re.fullmatch(
+            r"[A-Z]{3}[0-9]{7}",
+            str(value).strip().upper()
+        )
+    )
+
 
 # ============================================================
-# Main detector
+# OCR CORRECTION
+# ============================================================
+
+def correct_ocr_ifsc(value):
+
+    """
+    Correct O/0 confusion only in an IFSC candidate.
+
+    Example:
+    SBINO001234
+    ->
+    SBIN0001234
+    """
+
+    value = str(value).strip().upper()
+
+    # IFSC has 11 characters.
+    if len(value) != 11:
+        return None
+
+    characters = list(value)
+
+    # First four positions are letters.
+    # Fifth position must be zero.
+
+    characters[4] = "0"
+
+    corrected = "".join(characters)
+
+    if validate_ifsc(corrected):
+        return corrected
+
+    return None
+
+
+def correct_ocr_driving_license(value):
+
+    """
+    Correct common O/0 OCR confusion in a driving
+    licence candidate.
+    """
+
+    value = str(value).strip().upper()
+
+    corrected = value.replace("O", "0")
+
+    # Normalize spaces.
+    corrected = re.sub(
+        r"\s+",
+        " ",
+        corrected
+    )
+
+    # Expected Indian DL-style structure.
+    if re.fullmatch(
+        r"[A-Z]{2}\s?\d{2}\s?\d{4,14}",
+        corrected
+    ):
+        return corrected
+
+    return None
+
+
+# ============================================================
+# DETECTOR
 # ============================================================
 
 def detect_regex_pii(text):
-    """
-    Detect structured PII using regular expressions.
 
-    Returns a list of dictionaries containing:
-        label
-        value
-        start
-        end
-    """
-
-    if not isinstance(text, str):
+    if not isinstance(text, str) or not text.strip():
         return []
 
-    results = []
+    detections = []
 
-    for label, pattern in PATTERNS.items():
+    # ========================================================
+    # PAN
+    # ========================================================
 
-        for match in pattern.finditer(text):
+    for match in PATTERNS["PAN"].finditer(text):
 
-            # Get the matched value FIRST
-            value = match.group()
+        value = match.group(0)
 
-            # ------------------------------------------------
-            # Validate the matched value
-            # ------------------------------------------------
+        if validate_pan(value):
 
-            if label == "CREDITCARDNUMBER":
-
-                if not validate_card(value):
-                    continue
-
-            elif label == "PAN":
-
-                if not validate_pan(value):
-                    continue
-
-            elif label == "AADHAAR":
-
-                if not validate_aadhaar(value):
-                    continue
-
-            elif label == "IFSC":
-
-                if not validate_ifsc(value):
-                    continue
-
-            # ------------------------------------------------
-            # Prevent bank account from duplicating phone
-            # ------------------------------------------------
-
-            if label == "BANK_ACCOUNT":
-
-                if any(
-                    existing["label"] == "TELEPHONENUM"
-                    and existing["start"] <= match.start()
-                    and existing["end"] >= match.end()
-                    for existing in results
-                ):
-                    continue
-
-            new_result = {
-                "label": label,
+            detections.append({
+                "label": "PAN",
                 "value": value,
                 "start": match.start(),
-                "end": match.end()
-            }
+                "end": match.end(),
+                "source": "regex"
+            })
 
-            # Prevent Aadhaar from overlapping a credit card.
-            if label == "AADHAAR":
-                if any(
-                    existing["label"] == "CREDITCARDNUMBER"
-                    and new_result["start"] < existing["end"]
-                    and new_result["end"] > existing["start"]
-                    for existing in results
-                ):
-                    continue
+    # ========================================================
+    # AADHAAR
+    # ========================================================
 
-            results.append(new_result)
+    for match in PATTERNS["AADHAAR"].finditer(text):
 
-    # --------------------------------------------------------
-    # Sort by position
-    # --------------------------------------------------------
+        value = match.group(0)
 
-    results.sort(
+        if validate_aadhaar(value):
+
+            detections.append({
+                "label": "AADHAAR",
+                "value": value,
+                "start": match.start(),
+                "end": match.end(),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # NORMAL CREDIT CARD DETECTION
+    # ========================================================
+
+    for match in PATTERNS["CREDITCARDNUMBER"].finditer(text):
+
+        value = match.group(0).strip()
+
+        if validate_card(value):
+
+            detections.append({
+                "label": "CREDITCARDNUMBER",
+                "value": value,
+                "start": match.start(),
+                "end": match.start() + len(value),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # CONTEXT CREDIT CARD
+    # ========================================================
+
+    for match in CREDIT_CARD_CONTEXT.finditer(text):
+
+        original_value = match.group(1).strip()
+
+        corrected_value = correct_ocr_card(
+            original_value
+        )
+
+        if corrected_value:
+
+            # Important:
+            # Detection position covers the OCR value.
+            detections.append({
+                "label": "CREDITCARDNUMBER",
+                "value": corrected_value,
+                "ocr_value": original_value,
+                "start": match.start(1),
+                "end": match.end(1),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # NORMAL IFSC
+    # ========================================================
+
+    for match in PATTERNS["IFSC"].finditer(text):
+
+        value = match.group(0)
+
+        if validate_ifsc(value):
+
+            detections.append({
+                "label": "IFSC",
+                "value": value,
+                "start": match.start(),
+                "end": match.end(),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # OCR IFSC
+    # ========================================================
+
+    for match in IFSC_CONTEXT.finditer(text):
+
+        original_value = match.group(1)
+
+        corrected_value = correct_ocr_ifsc(
+            original_value
+        )
+
+        if corrected_value:
+
+            detections.append({
+                "label": "IFSC",
+                "value": corrected_value,
+                "ocr_value": original_value,
+                "start": match.start(1),
+                "end": match.end(1),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # BANK ACCOUNT
+    # ========================================================
+
+    for match in BANK_ACCOUNT_CONTEXT.finditer(text):
+
+        value = match.group(1)
+
+        detections.append({
+            "label": "BANK_ACCOUNT",
+            "value": value,
+            "start": match.start(1),
+            "end": match.end(1),
+            "source": "regex"
+        })
+
+    # ========================================================
+    # PASSPORT
+    # ========================================================
+
+    for match in PASSPORT_CONTEXT.finditer(text):
+
+        value = match.group(1).upper()
+
+        if validate_passport(value):
+
+            detections.append({
+                "label": "PASSPORTNUM",
+                "value": value,
+                "start": match.start(1),
+                "end": match.end(1),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # DRIVING LICENCE
+    # ========================================================
+
+    for match in DRIVING_LICENSE_CONTEXT.finditer(text):
+
+        original_value = match.group(1)
+
+        corrected_value = correct_ocr_driving_license(
+            original_value
+        )
+
+        if corrected_value:
+
+            detections.append({
+                "label": "DRIVERLICENSENUM",
+                "value": corrected_value,
+                "ocr_value": original_value,
+                "start": match.start(1),
+                "end": match.end(1),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # VOTER ID
+    # ========================================================
+
+    for match in VOTER_CONTEXT.finditer(text):
+
+        value = match.group(1).upper()
+
+        if validate_voter_id(value):
+
+            detections.append({
+                "label": "VOTERID",
+                "value": value,
+                "start": match.start(1),
+                "end": match.end(1),
+                "source": "regex"
+            })
+
+    # ========================================================
+    # UPI ID
+    # ========================================================
+
+    for match in UPI_CONTEXT.finditer(text):
+
+        value = match.group(1)
+
+        detections.append({
+            "label": "UPIID",
+            "value": value,
+            "start": match.start(1),
+            "end": match.end(1),
+            "source": "regex"
+        })
+
+    # ========================================================
+    # REMOVE OVERLAPS
+    # ========================================================
+
+    detections.sort(
+        key=lambda item: (
+            item["start"],
+            -(item["end"] - item["start"])
+        )
+    )
+
+    final_detections = []
+
+    for detection in detections:
+
+        overlaps = False
+
+        for existing in final_detections:
+
+            if (
+                detection["start"] < existing["end"]
+                and existing["start"] < detection["end"]
+            ):
+                overlaps = True
+                break
+
+        if not overlaps:
+
+            final_detections.append(
+                detection
+            )
+
+    final_detections.sort(
         key=lambda item: (
             item["start"],
             item["end"]
         )
     )
 
-    return results
-
-
-# ============================================================
-# Simple test
-# ============================================================
-
-if __name__ == "__main__":
-
-    sample_text = """
-    Email: test@example.com
-    Phone: +91 9876543210
-    PAN: ABCDE1234F
-    Aadhaar: 1234 5678 9012
-    IFSC: SBIN0001234
-    Card: 4111 1111 1111 1111
-    """
-
-    print("=" * 70)
-    print("REGEX PII DETECTOR TEST")
-    print("=" * 70)
-
-    results = detect_regex_pii(sample_text)
-
-    for result in results:
-
-        print(
-            f"{result['label']:<20} "
-            f"{result['value']:<25} "
-            f"({result['start']}, {result['end']})"
-        )
+    return final_detections

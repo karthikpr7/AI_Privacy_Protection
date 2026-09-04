@@ -254,7 +254,7 @@ def mask_value(
 
         return mask_pan(value)
 
-    # -----------------------------------------------------
+        # -----------------------------------------------------
     # Aadhaar and other identifiers
     # -----------------------------------------------------
 
@@ -268,6 +268,8 @@ def mask_value(
         "BANK_ACCOUNT",
         "BANKACCOUNT",
         "IFSC",
+        "VOTERID",
+        "VOTERIDNUM",
     }:
 
         return mask_identifier(
@@ -275,18 +277,54 @@ def mask_value(
             keep_last=4
         )
 
+
     # -----------------------------------------------------
-    # Generic fallback
+    # UPI ID
     # -----------------------------------------------------
 
-    if len(value) <= 2:
-        return "*" * len(value)
+    if label in {
+        "UPIID",
+        "UPI_ID",
+    }:
 
-    return (
-        value[0]
-        + "*" * (len(value) - 2)
-        + value[-1]
-    )
+        if "@" in value:
+
+            username, provider = value.split(
+                "@",
+                1
+            )
+
+            # Keep exactly 15 stars for UPI username
+            masked_username = "*" * 15
+
+            # Keep the last 5 characters of provider
+            # and replace the first 3 characters.
+            #
+            # Example:
+            # okicici
+            # ***icici
+
+            if len(provider) > 5:
+
+                masked_provider = (
+                    "***"
+                    + provider[-5:]
+                )
+
+            else:
+
+                masked_provider = (
+                    "***"
+                    + provider
+                )
+
+            return (
+                masked_username
+                + "@"
+                + masked_provider
+            )
+
+        return "*" * 15
 
 
 # =========================================================
@@ -379,6 +417,78 @@ def mask_detections(
 
     return masked_text
 
+# =========================================================
+# MASK TEXT USING DETECTED VALUES
+# =========================================================
+
+def mask_text_by_values(
+    text,
+    detections
+):
+
+    if not isinstance(
+        text,
+        str
+    ):
+        return text
+
+    if not detections:
+        return text
+
+    masked_text = text
+
+    # Process longer values first
+    # This helps with values containing spaces.
+    sorted_detections = sorted(
+        detections,
+        key=lambda item: len(
+            str(
+                item.get(
+                    "value",
+                    ""
+                )
+            )
+        ),
+        reverse=True
+    )
+
+    for detection in sorted_detections:
+
+        label = detection.get(
+            "label",
+            ""
+        )
+
+        value = detection.get(
+            "value",
+            ""
+        )
+
+        if not value:
+            continue
+
+        # Do not mask unwanted entities
+        if label.upper() in DO_NOT_MASK:
+            continue
+
+        # Generate the project's existing
+        # masking format
+        masked_value = mask_value(
+            value,
+            label
+        )
+
+        if masked_value == value:
+            continue
+
+        # Replace the detected value
+        # wherever it occurs in the extracted text
+        masked_text = masked_text.replace(
+            value,
+            masked_value
+        )
+
+    return masked_text
 
 # =========================================================
 # TEST

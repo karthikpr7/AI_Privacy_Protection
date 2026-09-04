@@ -1,52 +1,53 @@
 # ============================================================
-# Risk Analyzer
+# RISK ANALYZER
 # ============================================================
 
-# Project-defined risk weights.
-# These are not official privacy standards.
-
+# Only approved sensitive information contributes to risk.
 RISK_WEIGHTS = {
-
-    # Lower-risk contextual information
-    "GIVENNAME": 5,
-    "SURNAME": 5,
-    "TITLE": 5,
-    "AGE": 5,
-    "GENDER": 5,
-    "SEX": 5,
-
-    # Moderate-risk contact/location information
-    "EMAIL": 10,
-    "TELEPHONENUM": 10,
-    "CITY": 8,
-    "STREET": 10,
-    "BUILDINGNUM": 10,
-    "ZIPCODE": 8,
-
-    # Higher-risk identification information
-    "DATE": 8,
-    "DRIVERLICENSENUM": 20,
-    "PASSPORTNUM": 20,
-    "IDCARDNUM": 20,
-    "TAXNUM": 20,
-    "SOCIALNUM": 20,
-
-    # Critical financial / highly sensitive identifiers
     "PAN": 25,
     "AADHAAR": 25,
+    "PASSPORTNUM": 20,
+    "DRIVERLICENSENUM": 20,
+    "VOTERID": 20,
     "BANK_ACCOUNT": 25,
-    "CREDITCARDNUMBER": 25,
+    "BANKACCOUNT": 25,
     "IFSC": 15,
+    "CREDITCARDNUMBER": 25,
+    "DEBITCARDNUMBER": 25,
+    "UPIID": 20,
+    "PASSWORD": 30,
+    "APIKEY": 30,
+    "API_KEY": 30,
+    "ACCESSTOKEN": 30,
+    "ACCESS_TOKEN": 30,
+    "SECRETKEY": 30,
+    "SECRET_KEY": 30,
 }
 
 
-# ============================================================
-# Risk levels
-# ============================================================
+def normalize_label(label):
+    """
+    Convert equivalent labels into the labels
+    used by the risk system.
+    """
+
+    label = str(label).strip().upper()
+
+    aliases = {
+        "BANKACCOUNT": "BANK_ACCOUNT",
+        "VOTERIDNUM": "VOTERID",
+        "DEBITCARDNUMBER": "CREDITCARDNUMBER",
+        "API_KEY": "APIKEY",
+        "ACCESS_TOKEN": "ACCESSTOKEN",
+        "SECRET_KEY": "SECRETKEY",
+    }
+
+    return aliases.get(label, label)
+
 
 def get_risk_level(score):
     """
-    Convert a 0-100 risk score into a project-defined level.
+    Convert numerical risk score into a risk level.
     """
 
     if score <= 25:
@@ -61,25 +62,12 @@ def get_risk_level(score):
     return "CRITICAL"
 
 
-# ============================================================
-# Calculate risk
-# ============================================================
-
 def calculate_risk(detections):
     """
-    Calculate a risk score from detected PII.
+    Calculate privacy risk using only approved
+    sensitive information.
 
-    The raw sum of entity weights is capped at 100.
-
-    Parameters
-    ----------
-    detections : list
-        List of PII detection dictionaries.
-
-    Returns
-    -------
-    dict
-        Risk score, risk level, and supporting information.
+    Unknown or unwanted labels contribute 0 risk.
     """
 
     if not detections:
@@ -94,20 +82,17 @@ def calculate_risk(detections):
 
     for detection in detections:
 
-        label = detection.get("label")
-
-        weight = RISK_WEIGHTS.get(
-            label,
-            5
+        label = normalize_label(
+            detection.get("label", "")
         )
+
+        # Unknown labels have ZERO risk.
+        weight = RISK_WEIGHTS.get(label, 0)
 
         weighted_total += weight
 
-    # Keep the final score within 0-100.
-    score = min(
-        weighted_total,
-        100
-    )
+    # Keep score between 0 and 100.
+    score = min(weighted_total, 100)
 
     level = get_risk_level(score)
 
@@ -117,69 +102,3 @@ def calculate_risk(detections):
         "total_detections": len(detections),
         "weighted_total": weighted_total,
     }
-
-
-# ============================================================
-# Test
-# ============================================================
-
-if __name__ == "__main__":
-
-    sample_detections = [
-
-        {
-            "label": "GIVENNAME",
-            "value": "Rahul Sharma",
-            "start": 0,
-            "end": 12,
-        },
-
-        {
-            "label": "EMAIL",
-            "value": "rahul@gmail.com",
-            "start": 20,
-            "end": 36,
-        },
-
-        {
-            "label": "PAN",
-            "value": "ABCDE1234F",
-            "start": 45,
-            "end": 55,
-        },
-    ]
-
-    result = calculate_risk(
-        sample_detections
-    )
-
-    print("=" * 70)
-    print("RISK ANALYZER TEST")
-    print("=" * 70)
-
-    print()
-    print("Detections:")
-    print(
-        result["total_detections"]
-    )
-
-    print(
-        "Weighted total:",
-        result["weighted_total"]
-    )
-
-    print(
-        "Risk score:",
-        result["score"],
-        "/ 100"
-    )
-
-    print(
-        "Risk level:",
-        result["level"]
-    )
-
-    print()
-    print("=" * 70)
-    print("RISK ANALYZER TEST COMPLETED")
-    print("=" * 70)
