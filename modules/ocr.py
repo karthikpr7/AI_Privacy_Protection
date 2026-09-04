@@ -22,6 +22,103 @@ SUPPORTED_EXTENSIONS = {
 
 
 # =========================================================
+# PREPARE IMAGE FOR FAST OCR
+# =========================================================
+
+def prepare_image_for_ocr(image):
+    """
+    Create a smaller temporary OCR copy for faster processing.
+
+    The original image is never modified.
+
+    Returns:
+        ocr_image
+        scale_x
+        scale_y
+
+    scale_x and scale_y are used to convert OCR coordinates
+    back to the original image coordinates.
+    """
+
+    max_dimension = 1800
+
+    width, height = image.size
+
+    largest_dimension = max(
+        width,
+        height
+    )
+
+    # -----------------------------------------------------
+    # No resizing required.
+    # -----------------------------------------------------
+
+    if largest_dimension <= max_dimension:
+
+        return (
+            image,
+            1.0,
+            1.0
+        )
+
+    # -----------------------------------------------------
+    # Calculate resize ratio.
+    # -----------------------------------------------------
+
+    scale = (
+        max_dimension
+        / largest_dimension
+    )
+
+    new_width = max(
+        1,
+        int(
+            width * scale
+        )
+    )
+
+    new_height = max(
+        1,
+        int(
+            height * scale
+        )
+    )
+
+    # -----------------------------------------------------
+    # Create OCR-only copy.
+    # -----------------------------------------------------
+
+    ocr_image = image.resize(
+        (
+            new_width,
+            new_height
+        ),
+        Image.Resampling.LANCZOS
+    )
+
+    # -----------------------------------------------------
+    # Coordinates from OCR image must be converted back
+    # to coordinates of the original image.
+    # -----------------------------------------------------
+
+    scale_x = (
+        width
+        / new_width
+    )
+
+    scale_y = (
+        height
+        / new_height
+    )
+
+    return (
+        ocr_image,
+        scale_x,
+        scale_y
+    )
+
+
+# =========================================================
 # EXTRACT TEXT FROM FILE
 # =========================================================
 
@@ -53,8 +150,16 @@ def extract_text_from_file(file_path):
             "RGB"
         )
 
+        # Use smaller OCR copy for large images.
+        ocr_image, _, _ = (
+            prepare_image_for_ocr(
+                image
+            )
+        )
+
         return pytesseract.image_to_string(
-            image
+            ocr_image,
+            config="--psm 6"
         )
 
     # =====================================================
@@ -114,15 +219,39 @@ def extract_document_data(file_path):
         ".jpeg"
     }:
 
+        # -------------------------------------------------
+        # Open original image.
+        # -------------------------------------------------
+
         image = Image.open(
             file_path
         ).convert(
             "RGB"
         )
 
+        original_width = image.width
+        original_height = image.height
+
+        # -------------------------------------------------
+        # Create OCR-only resized copy.
+        # -------------------------------------------------
+
+        (
+            ocr_image,
+            scale_x,
+            scale_y
+        ) = prepare_image_for_ocr(
+            image
+        )
+
+        # -------------------------------------------------
+        # OCR.
+        # -------------------------------------------------
+
         ocr_data = pytesseract.image_to_data(
-            image,
-            output_type=pytesseract.Output.DICT
+            ocr_image,
+            output_type=pytesseract.Output.DICT,
+            config="--psm 6"
         )
 
         words = []
@@ -150,30 +279,54 @@ def extract_document_data(file_path):
 
                 confidence = -1
 
+            # -------------------------------------------------
+            # OCR coordinates are based on the resized image.
+            #
+            # Convert them back to original image coordinates.
+            # -------------------------------------------------
+
+            left = int(
+                ocr_data["left"][i]
+                * scale_x
+            )
+
+            top = int(
+                ocr_data["top"][i]
+                * scale_y
+            )
+
+            width = max(
+                1,
+                int(
+                    ocr_data["width"][i]
+                    * scale_x
+                )
+            )
+
+            height = max(
+                1,
+                int(
+                    ocr_data["height"][i]
+                    * scale_y
+                )
+            )
+
             words.append({
 
                 "text":
                     text,
 
                 "left":
-                    int(
-                        ocr_data["left"][i]
-                    ),
+                    left,
 
                 "top":
-                    int(
-                        ocr_data["top"][i]
-                    ),
+                    top,
 
                 "width":
-                    int(
-                        ocr_data["width"][i]
-                    ),
+                    width,
 
                 "height":
-                    int(
-                        ocr_data["height"][i]
-                    ),
+                    height,
 
                 "conf":
                     confidence,
@@ -201,10 +354,10 @@ def extract_document_data(file_path):
                 words,
 
             "width":
-                image.width,
+                original_width,
 
             "height":
-                image.height,
+                original_height,
         }
 
     # =====================================================
@@ -226,6 +379,10 @@ def extract_document_data(file_path):
             page_text = page.get_text(
                 "text"
             )
+
+            # =================================================
+            # TEXT PDF PAGE
+            # =================================================
 
             if page_text.strip():
 
@@ -277,6 +434,10 @@ def extract_document_data(file_path):
                         page_words,
                 })
 
+            # =================================================
+            # SCANNED PDF PAGE
+            # =================================================
+
             else:
 
                 pix = page.get_pixmap(
@@ -295,9 +456,14 @@ def extract_document_data(file_path):
                     pix.samples
                 )
 
+                # -------------------------------------------------
+                # Keep the existing 2x PDF coordinate system.
+                # -------------------------------------------------
+
                 ocr_data = pytesseract.image_to_data(
                     image,
-                    output_type=pytesseract.Output.DICT
+                    output_type=pytesseract.Output.DICT,
+                    config="--psm 6"
                 )
 
                 page_words = []
@@ -314,6 +480,16 @@ def extract_document_data(file_path):
 
                     if not text:
                         continue
+
+                    try:
+
+                        confidence = float(
+                            ocr_data["conf"][i]
+                        )
+
+                    except Exception:
+
+                        confidence = -1
 
                     page_words.append({
 
@@ -341,9 +517,7 @@ def extract_document_data(file_path):
                             ),
 
                         "conf":
-                            float(
-                                ocr_data["conf"][i]
-                            ),
+                            confidence,
                     })
 
                 page_text = " ".join(
@@ -1023,24 +1197,6 @@ def detect_sensitive_fields_from_ocr(
             # =================================================
             # SPECIAL UPI HANDLING
             # =================================================
-            #
-            # UPI is detected ONLY when the field label
-            # itself is "UPI ID".
-            #
-            # This is the important fix.
-            #
-            # Email:
-            #
-            #     Email Address : rahul@gmail.com
-            #
-            # will NEVER become UPI.
-            #
-            # Actual UPI:
-            #
-            #     UPI ID : rahulsharma@okicici
-            #
-            # can be detected.
-            # =================================================
 
             if label == "UPIID":
 
@@ -1085,7 +1241,6 @@ def detect_sensitive_fields_from_ocr(
 
                 else:
 
-                    # No valid UPI value on the UPI row.
                     continue
 
             # =================================================
@@ -1361,20 +1516,7 @@ def detect_sensitive_fields_from_ocr(
             break
 
     # =====================================================
-    # IMPORTANT:
     # NO GENERIC UPI FALLBACK
-    # =====================================================
-    #
-    # We intentionally DO NOT scan every OCR word looking
-    # for "something@something".
-    #
-    # Otherwise:
-    #
-    #     rahul@gmail.com
-    #
-    # becomes incorrectly classified as UPI.
-    #
-    # UPI must be associated with the "UPI ID" field label.
     # =====================================================
 
     # =====================================================
