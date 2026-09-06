@@ -28,7 +28,13 @@ SUPPORTED_EXTENSIONS = {
 
 PDF_OCR_SCALE = 1.5
 
-OCR_TIMEOUT = 30
+# Memory-safe OCR limits for Render/free-tier environments.
+OCR_MAX_DIMENSION = 2200
+OCR_TIMEOUT = 15
+
+# PAN fallback: one bounded OCR call only.
+PAN_FALLBACK_MAX_DIMENSION = 1600
+PAN_FALLBACK_TIMEOUT = 8
 
 OCR_CONFIG = "--oem 3 --psm 6"
 
@@ -206,6 +212,62 @@ def preprocess_ocr_image(image):
 
     return gray
 
+
+
+
+# ============================================================
+# MEMORY-SAFE OCR RESIZE
+# ============================================================
+
+def resize_image_for_ocr(image, max_dimension=OCR_MAX_DIMENSION):
+    """Create a bounded OCR copy and return (image, scale)."""
+
+    if image is None:
+        return None, 1.0
+
+    width, height = image.size
+
+    if width <= 0 or height <= 0:
+        return image, 1.0
+
+    largest = max(width, height)
+
+    if largest <= max_dimension:
+        return image, 1.0
+
+    scale = max_dimension / float(largest)
+
+    resized = image.resize(
+        (
+            max(1, int(round(width * scale))),
+            max(1, int(round(height * scale)))
+        ),
+        Image.Resampling.LANCZOS
+    )
+
+    return resized, scale
+
+
+def restore_ocr_word_scale(words, scale):
+    """Map OCR boxes back to original image coordinates."""
+
+    if not words or scale == 1.0:
+        return words
+
+    inverse = 1.0 / scale
+    restored = []
+
+    for word in words:
+        item = dict(word)
+        item["left"] = word["left"] * inverse
+        item["top"] = word["top"] * inverse
+        item["right"] = word["right"] * inverse
+        item["bottom"] = word["bottom"] * inverse
+        item["width"] = word["width"] * inverse
+        item["height"] = word["height"] * inverse
+        restored.append(item)
+
+    return restored
 
 # ============================================================
 # OCR VARIANTS
@@ -3226,92 +3288,108 @@ def detect_pan_from_ocr_words(
 # PAN TARGETED OCR
 # ============================================================
 
-def detect_pan_with_targeted_ocr(
-    image
-):
+def detect_pan_with_targeted_ocr(image):
 
-    detections = []
-
+    # Last-resort fallback: ONE bounded Tesseract call.
     if image is None:
-        return detections
+        return []
 
-    variants = make_ocr_variants(
-        image
-    )
+    try:
+        working_image, scale = resize_image_for_ocr(
+            image,
+            PAN_FALLBACK_MAX_DIMENSION
+        )
 
-    configs = [
+        if working_image.mode != "RGB":
+            working_image = working_image.convert("RGB")
 
-        "--oem 3 --psm 6",
+        gray = ImageOps.grayscale(working_image)
+        gray = ImageOps.autocontrast(gray)
 
-        "--oem 3 --psm 11",
-    ]
+        try:
+            import cv2
+            import numpy as np
 
-    seen = set()
+            array = np.asarray(gray)
+            _, thresholded = cv2.threshold(
+                array,
+                0,
+                255,
+                cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+            processed = Image.fromarray(thresholded)
+        except Exception:
+            processed = gray
 
-    for variant_name, variant_image in variants:
+        try:
+            data = pytesseract.image_to_data(
+                processed,
+                config="--oem 3 --psm 6",
+                output_type=pytesseract.Output.DICT,
+                timeout=PAN_FALLBACK_TIMEOUT
+            )
+        except Exception as error:
+            print(f"PAN fallback OCR skipped: {error}")
+            return []
 
-        for config in configs:
+        detections = []
+        total = len(data.get("text", []))
+
+        for index in range(total):
+            raw = str(data["text"][index]).strip()
+
+            if not raw:
+                continue
+
+            candidate = clean_pan_candidate(raw)
+
+            if not candidate:
+                compact = re.sub(r"[^A-Za-z0-9]", "", raw)
+                candidate = clean_pan_candidate(compact)
+
+            if not candidate:
+                continue
+
+            if not validate_sensitive_value("PAN", candidate):
+                continue
+
+            detection = {
+                "label": "PAN",
+                "value": candidate,
+                "source": "pan_targeted_ocr",
+                "ocr_variant": "fast",
+                "ocr_config": "--oem 3 --psm 6",
+            }
 
             try:
+                left = float(data["left"][index]) / scale
+                top = float(data["top"][index]) / scale
+                right = (
+                    float(data["left"][index])
+                    + float(data["width"][index])
+                ) / scale
+                bottom = (
+                    float(data["top"][index])
+                    + float(data["height"][index])
+                ) / scale
 
-                text = pytesseract.image_to_string(
-                    variant_image,
-                    config=config,
-                    timeout=OCR_TIMEOUT
-                )
-
+                detection.update({
+                    "left": left,
+                    "top": top,
+                    "right": right,
+                    "bottom": bottom,
+                })
             except Exception:
+                pass
 
-                continue
+            detections.append(detection)
 
-            if not text:
-                continue
+        return deduplicate_detections(detections)
 
-            for token in re.findall(
-                r"[A-Za-z0-9]{8,12}",
-                text
-            ):
+    except Exception as error:
+        print(f"PAN fallback OCR error: {error}")
+        return []
 
-                candidate = clean_pan_candidate(
-                    token
-                )
-
-                if not candidate:
-                    continue
-
-                if candidate in seen:
-                    continue
-
-                if not validate_sensitive_value(
-                    "PAN",
-                    candidate
-                ):
-                    continue
-
-                seen.add(
-                    candidate
-                )
-
-                detections.append(
-                    {
-                        "label":
-                            "PAN",
-
-                        "value":
-                            candidate,
-
-                        "source":
-                            "pan_targeted_ocr",
-
-                        "ocr_variant":
-                            variant_name,
-
-                        "ocr_config":
-                            config,
-                    }
-                )
-
-    return detections
 
 
 # ============================================================
@@ -3576,104 +3654,52 @@ def detect_sensitive_fields_from_page(
     detections = []
 
     # ========================================================
-    # 1. PAN TARGETED OCR
+    # 1. NORMAL FULL-TEXT DETECTION
     # ========================================================
 
-    if image is not None:
-
-        pan_detections = (
-            detect_pan_with_targeted_ocr(
-                image
-            )
-        )
-
-        for detection in pan_detections:
-
-            bbox = find_pan_bbox(
-                words,
-                detection[
-                    "value"
-                ]
-            )
-
-            if bbox:
-
-                detection.update(
-                    bbox
-                )
-
-            detections.append(
-                detection
-            )
-
-    # ========================================================
-    # 2. FULL TEXT
-    # ========================================================
-
-    full_text_detections = (
-        detect_from_full_text(
-            full_text
-        )
-    )
+    full_text_detections = detect_from_full_text(full_text)
 
     for detection in full_text_detections:
-
-        detection = (
-            attach_bbox_to_detection(
-                detection,
-                words
-            )
+        detection = attach_bbox_to_detection(
+            detection,
+            words
         )
-
-        detections.append(
-            detection
-        )
+        detections.append(detection)
 
     # ========================================================
-    # 3. WORD DETECTION
+    # 2. NORMAL WORD DETECTION
     # ========================================================
 
-    detections.extend(
-        detect_pan_from_ocr_words(
-            words
-        )
-    )
-
-    detections.extend(
-        detect_aadhaar_from_words(
-            words
-        )
-    )
-
-    detections.extend(
-        detect_card_from_words(
-            words
-        )
-    )
-
-    detections.extend(
-        detect_ifsc_from_words(
-            words
-        )
-    )
-
-    detections.extend(
-        detect_upi_from_words(
-            words
-        )
-    )
+    detections.extend(detect_pan_from_ocr_words(words))
+    detections.extend(detect_aadhaar_from_words(words))
+    detections.extend(detect_card_from_words(words))
+    detections.extend(detect_ifsc_from_words(words))
+    detections.extend(detect_upi_from_words(words))
 
     # ========================================================
-    # 4. LABEL DETECTION
+    # 3. LABEL DETECTION
     # ========================================================
 
     for label in FIELD_LABELS:
-
         detections.extend(
-            detect_labeled_value(
-                words,
-                label
-            )
+            detect_labeled_value(words, label)
+        )
+
+    # ========================================================
+    # 4. PAN FALLBACK ONLY IF NORMAL OCR MISSED PAN
+    # ========================================================
+
+    pan_already_found = any(
+        LABEL_ALIASES.get(
+            str(item.get("label", "")).upper().strip(),
+            str(item.get("label", "")).upper().strip()
+        ) == "PAN"
+        for item in detections
+    )
+
+    if image is not None and not pan_already_found:
+        detections.extend(
+            detect_pan_with_targeted_ocr(image)
         )
 
     # ========================================================
@@ -3683,52 +3709,25 @@ def detect_sensitive_fields_from_page(
     valid = []
 
     for detection in detections:
-
-        label = detection.get(
-            "label",
-            ""
-        )
-
-        value = detection.get(
-            "value",
-            ""
-        )
+        label = detection.get("label", "")
+        value = detection.get("value", "")
 
         label = LABEL_ALIASES.get(
             str(label).upper(),
             str(label).upper()
         )
 
-        # ----------------------------------------------------
-        # Unknown labels are NEVER allowed.
-        # ----------------------------------------------------
-
         if label not in ALLOWED_SENSITIVE_LABELS:
-
             continue
 
-        # ----------------------------------------------------
-        # Strict validation.
-        # ----------------------------------------------------
-
-        if not validate_sensitive_value(
-            label,
-            value
-        ):
-
+        if not validate_sensitive_value(label, value):
             continue
 
-        detection[
-            "label"
-        ] = label
+        detection["label"] = label
+        valid.append(detection)
 
-        valid.append(
-            detection
-        )
+    return deduplicate_detections(valid)
 
-    return deduplicate_detections(
-        valid
-    )
 
 
 # ============================================================
@@ -3842,17 +3841,17 @@ def extract_document_data(
             "RGB"
         )
 
-        ocr_image = (
-            preprocess_ocr_image(
-                image
-            )
+        ocr_source, ocr_scale = resize_image_for_ocr(
+            image
         )
 
-        full_text = (
-            extract_text_from_image(
-                ocr_image,
-                OCR_CONFIG
-            )
+        ocr_image = preprocess_ocr_image(
+            ocr_source
+        )
+
+        full_text = extract_text_from_image(
+            ocr_image,
+            OCR_CONFIG
         )
 
         raw_words = get_image_ocr_data(
@@ -3860,8 +3859,11 @@ def extract_document_data(
             OCR_CONFIG
         )
 
-        words = normalize_ocr_words(
-            raw_words
+        words = normalize_ocr_words(raw_words)
+
+        words = restore_ocr_word_scale(
+            words,
+            ocr_scale
         )
 
         return {
@@ -4176,17 +4178,17 @@ def extract_document_data(
             pix.samples
         )
 
-        ocr_image = (
-            preprocess_ocr_image(
-                image
-            )
+        ocr_source, ocr_scale = resize_image_for_ocr(
+            image
         )
 
-        full_text = (
-            extract_text_from_image(
-                ocr_image,
-                OCR_CONFIG
-            )
+        ocr_image = preprocess_ocr_image(
+            ocr_source
+        )
+
+        full_text = extract_text_from_image(
+            ocr_image,
+            OCR_CONFIG
         )
 
         raw_words = get_image_ocr_data(
@@ -4194,8 +4196,11 @@ def extract_document_data(
             OCR_CONFIG
         )
 
-        image_words = normalize_ocr_words(
-            raw_words
+        image_words = normalize_ocr_words(raw_words)
+
+        image_words = restore_ocr_word_scale(
+            image_words,
+            ocr_scale
         )
 
         page_words = []
