@@ -2,12 +2,18 @@ from flask import (
     Flask,
     render_template,
     request,
-    send_file
+    send_file,
+    abort,
+    url_for,
+    session
 )
 
 import os
 import json
-from werkzeug.utils import secure_filename
+import uuid
+import copy
+
+from PIL import Image
 
 from modules.detector import analyze_text
 
@@ -19,18 +25,14 @@ from modules.ocr import (
     create_masked_text_preview
 )
 
-from modules.document_protector import (
-    create_protected_pdf
-)
+from modules.document_protector import create_protected_pdf
 
 from modules.report_generator import (
     generate_report,
     generate_privacy_report_pdf
 )
 
-from modules.risk_analyzer import (
-    calculate_risk
-)
+from modules.risk_analyzer import calculate_risk
 
 
 # =========================================================
@@ -38,6 +40,12 @@ from modules.risk_analyzer import (
 # =========================================================
 
 app = Flask(__name__)
+
+# Secret key is required for Flask sessions.
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    "ai-privacy-protection-local-secret-key"
+)
 
 
 # =========================================================
@@ -50,6 +58,8 @@ PROTECTED_FOLDER = "outputs/protected"
 
 REPORT_FOLDER = "outputs/reports"
 
+TEMP_DATA_FOLDER = "outputs/document_data"
+
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -57,9 +67,11 @@ app.config["PROTECTED_FOLDER"] = PROTECTED_FOLDER
 
 app.config["REPORT_FOLDER"] = REPORT_FOLDER
 
+app.config["TEMP_DATA_FOLDER"] = TEMP_DATA_FOLDER
+
 
 # =========================================================
-# CREATE REQUIRED FOLDERS
+# CREATE FOLDERS
 # =========================================================
 
 os.makedirs(
@@ -77,37 +89,189 @@ os.makedirs(
     exist_ok=True
 )
 
+os.makedirs(
+    TEMP_DATA_FOLDER,
+    exist_ok=True
+)
+
 
 # =========================================================
-# ALLOWED FILE EXTENSIONS
+# JSON SAFE CONVERSION
 # =========================================================
 
-ALLOWED_EXTENSIONS = {
-    ".pdf",
-    ".png",
-    ".jpg",
-    ".jpeg",
-}
-
-
-def allowed_file(filename):
+def make_json_safe(data):
     """
-    Check whether the uploaded file type
-    is supported by the project.
+    Convert data to JSON-safe values.
+
+    This is used only for displaying analysis information.
+
+    Internal document/OCR data is NOT sent to the browser
+    for the protection process.
     """
 
-    if not filename:
-        return False
+    if isinstance(
+        data,
+        Image.Image
+    ):
 
-    extension = os.path.splitext(
-        filename
-    )[1].lower()
+        return None
 
-    return extension in ALLOWED_EXTENSIONS
+    if isinstance(
+        data,
+        dict
+    ):
+
+        cleaned = {}
+
+        for key, value in data.items():
+
+            if key in {
+                "image",
+                "pil_image",
+                "page_image"
+            }:
+
+                continue
+
+            cleaned[key] = make_json_safe(
+                value
+            )
+
+        return cleaned
+
+    if isinstance(
+        data,
+        list
+    ):
+
+        return [
+            make_json_safe(
+                item
+            )
+            for item in data
+        ]
+
+    if isinstance(
+        data,
+        tuple
+    ):
+
+        return [
+            make_json_safe(
+                item
+            )
+            for item in data
+        ]
+
+    if isinstance(
+        data,
+        set
+    ):
+
+        return [
+            make_json_safe(
+                item
+            )
+            for item in data
+        ]
+
+    if data is None:
+
+        return None
+
+    if isinstance(
+        data,
+        (
+            str,
+            int,
+            float,
+            bool
+        )
+    ):
+
+        return data
+
+    try:
+
+        if hasattr(
+            data,
+            "item"
+        ):
+
+            return data.item()
+
+    except Exception:
+
+        pass
+
+    return str(
+        data
+    )
 
 
 # =========================================================
-# HOME PAGE
+# SAVE INTERNAL DOCUMENT DATA
+# =========================================================
+
+def save_internal_document_data(
+    document_id,
+    document_data
+):
+
+    path = os.path.join(
+        TEMP_DATA_FOLDER,
+        f"{document_id}.pkl"
+    )
+
+    import pickle
+
+    with open(
+        path,
+        "wb"
+    ) as file:
+
+        pickle.dump(
+            document_data,
+            file,
+            protocol=pickle.HIGHEST_PROTOCOL
+        )
+
+    return path
+
+
+# =========================================================
+# LOAD INTERNAL DOCUMENT DATA
+# =========================================================
+
+def load_internal_document_data(
+    document_id
+):
+
+    path = os.path.join(
+        TEMP_DATA_FOLDER,
+        f"{document_id}.pkl"
+    )
+
+    if not os.path.isfile(
+        path
+    ):
+
+        return None
+
+    import pickle
+
+    with open(
+        path,
+        "rb"
+    ) as file:
+
+        return pickle.load(
+            file
+        )
+
+
+# =========================================================
+# HOME
 # =========================================================
 
 @app.route(
@@ -143,65 +307,15 @@ def analyze():
             error="Please enter some text to analyze."
         )
 
-    try:
+    result = analyze_text(
+        text
+    )
 
-        # -------------------------------------------------
-        # Analyze normal text
-        # -------------------------------------------------
-
-        result = analyze_text(
-            text
-        )
-
-        # -------------------------------------------------
-        # Recalculate risk using the final
-        # approved sensitive detections.
-        # -------------------------------------------------
-
-        result["risk"] = calculate_risk(
-            result.get(
-                "detections",
-                []
-            )
-        )
-
-        # -------------------------------------------------
-        # Create masked preview
-        # -------------------------------------------------
-
-        result["masked_text"] = (
-            mask_text_by_values(
-                text,
-                result.get(
-                    "detections",
-                    []
-                )
-            )
-        )
-
-        # -------------------------------------------------
-        # Generate report information
-        # -------------------------------------------------
-
-        result["report"] = generate_report(
-            result
-        )
-
-        return render_template(
-            "result.html",
-            text=text,
-            result=result
-        )
-
-    except Exception as error:
-
-        print(
-            f"ERROR ANALYZING TEXT: {error}"
-        )
-
-        return (
-            f"Error analyzing text: {error}"
-        ), 500
+    return render_template(
+        "result.html",
+        text=text,
+        result=result
+    )
 
 
 # =========================================================
@@ -219,7 +333,7 @@ def analyze_file():
     )
 
     # -----------------------------------------------------
-    # Check uploaded file
+    # Validate upload.
     # -----------------------------------------------------
 
     if not file or not file.filename:
@@ -229,112 +343,52 @@ def analyze_file():
             400
         )
 
-    original_filename = file.filename
+    filename = file.filename
 
     # -----------------------------------------------------
-    # Check extension
+    # Create unique upload name.
     # -----------------------------------------------------
 
-    if not allowed_file(
-        original_filename
-    ):
+    unique_id = uuid.uuid4().hex
 
-        return (
-            "Unsupported file type. "
-            "Please upload PDF, PNG, JPG or JPEG.",
-            400
-        )
+    extension = os.path.splitext(
+        filename
+    )[1].lower()
 
-    # -----------------------------------------------------
-    # Secure filename
-    # -----------------------------------------------------
-
-    filename = secure_filename(
-        original_filename
+    stored_filename = (
+        f"{unique_id}{extension}"
     )
 
-    if not filename:
-
-        return (
-            "Invalid file name.",
-            400
-        )
-
     upload_path = os.path.join(
-        app.config["UPLOAD_FOLDER"],
-        filename
+        UPLOAD_FOLDER,
+        stored_filename
+    )
+
+    file.save(
+        upload_path
     )
 
     try:
 
         # =================================================
-        # SAVE UPLOADED FILE
+        # EXTRACT DOCUMENT DATA
         # =================================================
 
-        file.save(
+        document_data = extract_document_data(
             upload_path
         )
 
-        print(
-            f"FILE UPLOADED: {filename}"
+        # =================================================
+        # EXTRACTED TEXT
+        # =================================================
+
+        extracted_text = document_data.get(
+            "text",
+            ""
         )
 
         # =================================================
-        # EXTRACT DOCUMENT DATA
-        # =================================================
-        #
-        # This performs:
-        #
-        #   PDF/image text extraction
-        #   Full OCR
-        #   Word-level OCR
-        #   Position extraction
-        #
-        # It is the ONLY document extraction call.
-        #
-        # =================================================
-
-        document_data = (
-            extract_document_data(
-                upload_path
-            )
-        )
-
-        # =================================================
-        # GET EXTRACTED TEXT
-        # =================================================
-
-        extracted_text = (
-            document_data.get(
-                "text",
-                ""
-            )
-        )
-
-        # =================================================
-        # DETECT APPROVED SENSITIVE FIELDS
-        # =================================================
-        #
-        # IMPORTANT:
-        #
-        # detect_sensitive_fields_from_ocr()
-        # only returns approved sensitive categories.
-        #
-        # It should ignore:
-        #
-        #   Name
-        #   Address
-        #   DOB
-        #   Phone
-        #   Email
-        #   Website
-        #   URL
-        #   IP
-        #   MAC
-        #   normal dates
-        #   normal numbers
-        #   unknown NER entities
-        #
+        # OCR DETECTIONS
         # =================================================
 
         ocr_field_detections = (
@@ -343,20 +397,8 @@ def analyze_file():
             )
         )
 
-        print(
-            "OCR DETECTIONS:",
-            ocr_field_detections
-        )
-
         # =================================================
-        # RUN TEXT DETECTION
-        # =================================================
-        #
-        # This provides NER + regex detection.
-        #
-        # combine_results.py already filters
-        # NER results to approved sensitive labels.
-        #
+        # NORMAL ANALYSIS
         # =================================================
 
         result = analyze_text(
@@ -364,23 +406,13 @@ def analyze_file():
             document_name=filename
         )
 
-        existing_detections = (
-            result.get(
-                "detections",
-                []
-            )
+        existing_detections = result.get(
+            "detections",
+            []
         )
 
         # =================================================
-        # FINAL DETECTION SELECTION
-        # =================================================
-        #
-        # OCR detections are preferred because they
-        # contain document positions needed for masking.
-        #
-        # If OCR finds nothing, fall back to the
-        # normal NER + regex detector.
-        #
+        # PREFER POSITIONAL OCR DETECTIONS
         # =================================================
 
         if ocr_field_detections:
@@ -396,55 +428,25 @@ def analyze_file():
             )
 
         # =================================================
-        # PRINT FINAL DETECTIONS
+        # RISK
         # =================================================
 
-        print(
-            "FINAL DETECTIONS:",
+        result["risk"] = calculate_risk(
             result["detections"]
         )
 
         # =================================================
-        # RECALCULATE PRIVACY RISK
+        # MASKED TEXT PREVIEW
         # =================================================
 
-        result["risk"] = calculate_risk(
-            result.get(
-                "detections",
-                []
-            )
-        )
-
-        # =================================================
-        # CREATE MASKED TEXT PREVIEW
-        # =================================================
-        #
-        # Both images and PDFs can now have OCR
-        # positional information.
-        #
-        # Therefore both are sent through the OCR
-        # preview function.
-        #
-        # =================================================
-
-        document_type = (
-            document_data.get(
-                "type"
-            )
-        )
-
-        if document_type in {
-            "image",
-            "pdf"
-        }:
+        if document_data.get(
+            "type"
+        ) == "image":
 
             result["masked_text"] = (
                 create_masked_text_preview(
                     document_data,
-                    result.get(
-                        "detections",
-                        []
-                    )
+                    result["detections"]
                 )
             )
 
@@ -453,26 +455,21 @@ def analyze_file():
             result["masked_text"] = (
                 mask_text_by_values(
                     extracted_text,
-                    result.get(
-                        "detections",
-                        []
-                    )
+                    result["detections"]
                 )
             )
 
         # =================================================
-        # GENERATE PRIVACY REPORT DATA
+        # REPORT
         # =================================================
 
-        result["report"] = (
-            generate_report(
-                result,
-                document_name=filename
-            )
+        result["report"] = generate_report(
+            result,
+            document_name=filename
         )
 
         # =================================================
-        # STORE ORIGINAL FILE PATH
+        # ORIGINAL SERVER FILE
         # =================================================
 
         result["original_file"] = (
@@ -480,22 +477,50 @@ def analyze_file():
         )
 
         # =================================================
-        # STORE DOCUMENT DATA
-        # =================================================
-        #
-        # NOTE:
-        #
-        # Flask/Jinja can work with this while the result
-        # page is being rendered.
-        #
+        # UNIQUE DOCUMENT ID
         # =================================================
 
-        result["document_data"] = (
+        document_id = unique_id
+
+        result["document_id"] = (
+            document_id
+        )
+
+        # =================================================
+        # SAVE COMPLETE INTERNAL OCR DATA
+        # =================================================
+        #
+        # IMPORTANT:
+        #
+        # Do NOT put this data inside the HTML form.
+        #
+        # It may contain:
+        #
+        # - PIL Image
+        # - OCR image information
+        # - coordinates
+        # - page information
+        #
+        # The server keeps the original data.
+        # =================================================
+
+        save_internal_document_data(
+            document_id,
             document_data
         )
 
         # =================================================
-        # SHOW RESULT PAGE
+        # ONLY JSON-SAFE DATA FOR DISPLAY
+        # =================================================
+
+        result["document_data"] = (
+            make_json_safe(
+                document_data
+            )
+        )
+
+        # =================================================
+        # RESULT PAGE
         # =================================================
 
         return render_template(
@@ -506,9 +531,9 @@ def analyze_file():
 
     except Exception as error:
 
-        # -------------------------------------------------
-        # Print complete error to terminal / Render logs.
-        # -------------------------------------------------
+        print(
+            "========================================"
+        )
 
         print(
             "ERROR PROCESSING FILE:"
@@ -518,22 +543,9 @@ def analyze_file():
             repr(error)
         )
 
-        # -------------------------------------------------
-        # Remove partially saved upload if necessary.
-        # -------------------------------------------------
-
-        try:
-
-            if os.path.exists(
-                upload_path
-            ):
-
-                os.remove(
-                    upload_path
-                )
-
-        except Exception:
-            pass
+        print(
+            "========================================"
+        )
 
         return (
             f"Error processing file: {error}"
@@ -550,9 +562,9 @@ def analyze_file():
 )
 def protect():
 
-    # =====================================================
-    # GET FORM DATA
-    # =====================================================
+    # -----------------------------------------------------
+    # Get form values.
+    # -----------------------------------------------------
 
     masked_text = request.form.get(
         "masked_text",
@@ -569,10 +581,6 @@ def protect():
         ""
     )
 
-    # =====================================================
-    # CHECK RESULT
-    # =====================================================
-
     if not result_json:
 
         return (
@@ -581,7 +589,7 @@ def protect():
         )
 
     # =====================================================
-    # LOAD RESULT JSON
+    # LOAD ANALYSIS RESULT
     # =====================================================
 
     try:
@@ -593,7 +601,8 @@ def protect():
     except Exception as error:
 
         print(
-            f"ERROR READING RESULT JSON: {error}"
+            "ERROR READING RESULT JSON:",
+            repr(error)
         )
 
         return (
@@ -602,7 +611,7 @@ def protect():
         )
 
     # =====================================================
-    # GET DETECTIONS
+    # DETECTIONS
     # =====================================================
 
     detections = result.get(
@@ -611,24 +620,12 @@ def protect():
     )
 
     # =====================================================
-    # GET ORIGINAL FILE
+    # ORIGINAL SERVER FILE
     # =====================================================
 
     original_file = result.get(
         "original_file"
     )
-
-    # =====================================================
-    # GET DOCUMENT DATA
-    # =====================================================
-
-    document_data = result.get(
-        "document_data"
-    )
-
-    # =====================================================
-    # VALIDATE ORIGINAL FILE
-    # =====================================================
 
     if not original_file:
 
@@ -637,7 +634,7 @@ def protect():
             400
         )
 
-    if not os.path.exists(
+    if not os.path.isfile(
         original_file
     ):
 
@@ -647,18 +644,50 @@ def protect():
         )
 
     # =====================================================
-    # VALIDATE DOCUMENT DATA
+    # DOCUMENT ID
     # =====================================================
 
-    if not document_data:
+    document_id = result.get(
+        "document_id"
+    )
+
+    if not document_id:
 
         return (
-            "Document position data is missing",
+            "Document processing information is missing",
             400
         )
 
     # =====================================================
-    # PROTECTED FILE NAME
+    # LOAD ORIGINAL OCR DATA
+    # =====================================================
+    #
+    # This is the important correction.
+    #
+    # We DO NOT use:
+    #
+    #     result["document_data"]
+    #
+    # because that is only the JSON-safe display copy.
+    #
+    # We use the original OCR data saved on the server.
+    # =====================================================
+
+    document_data = (
+        load_internal_document_data(
+            document_id
+        )
+    )
+
+    if document_data is None:
+
+        return (
+            "Original OCR document data could not be loaded.",
+            500
+        )
+
+    # =====================================================
+    # FILE NAME
     # =====================================================
 
     base_name = os.path.splitext(
@@ -672,30 +701,79 @@ def protect():
     )
 
     protected_path = os.path.join(
-        app.config[
-            "PROTECTED_FOLDER"
-        ],
+        PROTECTED_FOLDER,
         protected_filename
     )
 
     # =====================================================
-    # CREATE PROTECTED DOCUMENT
+    # REMOVE OLD OUTPUT
     # =====================================================
-    #
-    # For PDF:
-    #
-    #   original layout/page size is preserved
-    #
-    # For scanned documents:
-    #
-    #   sensitive fields are masked at their
-    #   detected positions.
-    #
+
+    if os.path.exists(
+        protected_path
+    ):
+
+        try:
+
+            os.remove(
+                protected_path
+            )
+
+        except Exception as error:
+
+            print(
+                "WARNING: Could not remove old protected file:",
+                repr(error)
+            )
+
+    # =====================================================
+    # CREATE PROTECTED PDF
     # =====================================================
 
     try:
 
-        create_protected_pdf(
+        print(
+            "========================================"
+        )
+
+        print(
+            "CREATING PROTECTED DOCUMENT"
+        )
+
+        print(
+            "Original:",
+            original_file
+        )
+
+        print(
+            "Output:",
+            protected_path
+        )
+
+        print(
+            "Detections:",
+            detections
+        )
+
+        print(
+            "Document data type:",
+            document_data.get(
+                "type"
+            )
+            if isinstance(
+                document_data,
+                dict
+            )
+            else type(
+                document_data
+            )
+        )
+
+        print(
+            "========================================"
+        )
+
+        created_path = create_protected_pdf(
             original_file,
             protected_path,
             detections,
@@ -705,20 +783,106 @@ def protect():
     except Exception as error:
 
         print(
-            "ERROR CREATING PROTECTED FILE:"
+            "========================================"
+        )
+
+        print(
+            "ERROR CREATING PROTECTED DOCUMENT:"
         )
 
         print(
             repr(error)
         )
 
+        print(
+            "========================================"
+        )
+
         return (
-            f"Error creating protected document: "
-            f"{error}"
+            f"Error creating protected document: {error}"
         ), 500
 
     # =====================================================
-    # GENERATE PRIVACY REPORT
+    # CHECK CREATED PATH
+    # =====================================================
+
+    if not created_path:
+
+        return (
+            "Protected document was not created.",
+            500
+        )
+
+    if not os.path.isfile(
+        created_path
+    ):
+
+        return (
+            "Protected document was not created.",
+            500
+        )
+
+    # =====================================================
+    # CHECK FILE SIZE
+    # =====================================================
+
+    file_size = os.path.getsize(
+        created_path
+    )
+
+    print(
+        "PROTECTED FILE SIZE:",
+        file_size
+    )
+
+    if file_size <= 0:
+
+        return (
+            "Protected document is empty.",
+            500
+        )
+
+    # =====================================================
+    # CHECK PDF HEADER
+    # =====================================================
+
+    try:
+
+        with open(
+            created_path,
+            "rb"
+        ) as pdf_file:
+
+            header = pdf_file.read(
+                5
+            )
+
+    except Exception as error:
+
+        print(
+            "ERROR READING PROTECTED FILE:",
+            repr(error)
+        )
+
+        return (
+            "Could not verify protected document.",
+            500
+        )
+
+    print(
+        "PROTECTED FILE HEADER:",
+        header
+    )
+
+    if header != b"%PDF-":
+
+        return (
+            "Protected document is not a valid PDF.",
+            500
+        )
+
+    # =====================================================
+    # PRIVACY REPORT
     # =====================================================
 
     report_filename = (
@@ -726,9 +890,7 @@ def protect():
     )
 
     report_path = os.path.join(
-        app.config[
-            "REPORT_FOLDER"
-        ],
+        REPORT_FOLDER,
         report_filename
     )
 
@@ -743,17 +905,20 @@ def protect():
     except Exception as error:
 
         print(
-            "ERROR GENERATING PRIVACY REPORT:"
-        )
-
-        print(
+            "ERROR GENERATING PRIVACY REPORT:",
             repr(error)
         )
 
-        return (
-            f"Error generating privacy report: "
-            f"{error}"
-        ), 500
+        report_filename = None
+
+    # =====================================================
+    # DOWNLOAD URL
+    # =====================================================
+
+    protected_download_url = url_for(
+        "download_protected",
+        filename=protected_filename
+    )
 
     # =====================================================
     # PROTECTED PAGE
@@ -761,82 +926,165 @@ def protect():
 
     return render_template(
         "protected.html",
-
-        protected_filename=(
-            protected_filename
-        ),
-
-        protected_file=(
-            protected_filename
-        ),
-
-        report_filename=(
-            report_filename
-        ),
-
-        document_name=(
-            document_name
-        ),
-
+        protected_filename=protected_filename,
+        protected_file=protected_filename,
+        protected_download_url=protected_download_url,
+        report_filename=report_filename,
+        document_name=document_name,
         result=result
     )
 
 
 # =========================================================
-# DOWNLOAD PROTECTED DOCUMENT
+# DOWNLOAD PROTECTED PDF
 # =========================================================
 
 @app.route(
-    "/download-protected/<filename>"
+    "/download-protected/<path:filename>",
+    methods=["GET"]
 )
 def download_protected(
     filename
 ):
 
-    # -----------------------------------------------------
-    # Prevent directory traversal.
-    # -----------------------------------------------------
-
-    safe_filename = secure_filename(
+    safe_filename = os.path.basename(
         filename
     )
 
-    if not safe_filename:
+    # -----------------------------------------------------
+    # PDF ONLY
+    # -----------------------------------------------------
 
-        return render_template(
-            "index.html",
-            error="Invalid protected file name."
+    if not safe_filename.lower().endswith(
+        ".pdf"
+    ):
+
+        abort(
+            400
         )
 
-    file_path = os.path.join(
+    # =====================================================
+    # PATH
+    # =====================================================
+
+    protected_folder = os.path.abspath(
         app.config[
             "PROTECTED_FOLDER"
-        ],
-        safe_filename
+        ]
     )
 
-    # -----------------------------------------------------
-    # Check file
-    # -----------------------------------------------------
+    file_path = os.path.abspath(
+        os.path.join(
+            protected_folder,
+            safe_filename
+        )
+    )
+
+    # =====================================================
+    # SECURITY
+    # =====================================================
+
+    if not file_path.startswith(
+        protected_folder + os.sep
+    ):
+
+        abort(
+            403
+        )
+
+    # =====================================================
+    # EXISTS
+    # =====================================================
 
     if not os.path.isfile(
         file_path
     ):
 
-        return render_template(
-            "index.html",
-            error="Protected file not found."
+        return (
+            "Protected file not found.",
+            404
         )
 
-    # -----------------------------------------------------
-    # Send file
-    # -----------------------------------------------------
+    # =====================================================
+    # VERIFY PDF
+    # =====================================================
 
-    return send_file(
+    try:
+
+        with open(
+            file_path,
+            "rb"
+        ) as pdf_file:
+
+            header = pdf_file.read(
+                5
+            )
+
+    except Exception as error:
+
+        print(
+            "ERROR READING DOWNLOAD FILE:",
+            repr(error)
+        )
+
+        return (
+            "Could not read protected PDF.",
+            500
+        )
+
+    if header != b"%PDF-":
+
+        print(
+            "DOWNLOAD BLOCKED."
+        )
+
+        print(
+            "INVALID HEADER:",
+            header
+        )
+
+        return (
+            "The protected file is invalid.",
+            500
+        )
+
+    # =====================================================
+    # SEND PDF
+    # =====================================================
+
+    response = send_file(
         file_path,
+        mimetype="application/pdf",
         as_attachment=True,
-        download_name=safe_filename
+        download_name=safe_filename,
+        conditional=False,
+        max_age=0
     )
+
+    # =====================================================
+    # NO CACHE
+    # =====================================================
+
+    response.headers[
+        "Cache-Control"
+    ] = (
+        "no-store, no-cache, "
+        "must-revalidate, max-age=0"
+    )
+
+    response.headers[
+        "Pragma"
+    ] = "no-cache"
+
+    response.headers[
+        "Expires"
+    ] = "0"
+
+    response.headers[
+        "Content-Type"
+    ] = "application/pdf"
+
+    return response
 
 
 # =========================================================
@@ -844,60 +1092,113 @@ def download_protected(
 # =========================================================
 
 @app.route(
-    "/download-report/<filename>"
+    "/download-report/<path:filename>",
+    methods=["GET"]
 )
 def download_report(
     filename
 ):
 
-    # -----------------------------------------------------
-    # Prevent directory traversal.
-    # -----------------------------------------------------
-
-    safe_filename = secure_filename(
+    safe_filename = os.path.basename(
         filename
     )
 
-    if not safe_filename:
+    if not safe_filename.lower().endswith(
+        ".pdf"
+    ):
 
-        return render_template(
-            "index.html",
-            error="Invalid report file name."
+        abort(
+            400
         )
 
-    file_path = os.path.join(
+    report_folder = os.path.abspath(
         app.config[
             "REPORT_FOLDER"
-        ],
-        safe_filename
+        ]
     )
 
-    # -----------------------------------------------------
-    # Check file
-    # -----------------------------------------------------
+    file_path = os.path.abspath(
+        os.path.join(
+            report_folder,
+            safe_filename
+        )
+    )
+
+    if not file_path.startswith(
+        report_folder + os.sep
+    ):
+
+        abort(
+            403
+        )
 
     if not os.path.isfile(
         file_path
     ):
 
-        return render_template(
-            "index.html",
-            error="Privacy report not found."
+        return (
+            "Privacy report not found.",
+            404
         )
 
-    # -----------------------------------------------------
-    # Send report
-    # -----------------------------------------------------
+    try:
 
-    return send_file(
+        with open(
+            file_path,
+            "rb"
+        ) as pdf_file:
+
+            header = pdf_file.read(
+                5
+            )
+
+    except Exception:
+
+        return (
+            "Could not read privacy report.",
+            500
+        )
+
+    if header != b"%PDF-":
+
+        return (
+            "Privacy report is not a valid PDF.",
+            500
+        )
+
+    response = send_file(
         file_path,
+        mimetype="application/pdf",
         as_attachment=True,
-        download_name=safe_filename
+        download_name=safe_filename,
+        conditional=False,
+        max_age=0
     )
+
+    response.headers[
+        "Cache-Control"
+    ] = (
+        "no-store, no-cache, "
+        "must-revalidate, max-age=0"
+    )
+
+    response.headers[
+        "Pragma"
+    ] = "no-cache"
+
+    response.headers[
+        "Expires"
+    ] = "0"
+
+    response.headers[
+        "Content-Type"
+    ] = "application/pdf"
+
+    return response
 
 
 # =========================================================
-# RUN APPLICATION
+# RUN
 # =========================================================
 
 if __name__ == "__main__":

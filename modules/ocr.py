@@ -21,41 +21,53 @@ SUPPORTED_EXTENSIONS = {
     ".jpeg",
 }
 
-PDF_OCR_SCALE = 2
+
+# ============================================================
+# OCR SETTINGS
+# ============================================================
+
+PDF_OCR_SCALE = 1.5
+
+OCR_TIMEOUT = 30
+
+OCR_CONFIG = "--oem 3 --psm 6"
 
 
 # ============================================================
-# APPROVED SENSITIVE LABELS
+# ONLY THESE LABELS ARE ALLOWED TO BE SENSITIVE
 # ============================================================
 
 ALLOWED_SENSITIVE_LABELS = {
+
     "PAN",
+
     "AADHAAR",
+
     "PASSPORTNUM",
+
     "DRIVERLICENSENUM",
+
     "VOTERID",
-    "VOTERIDNUM",
 
     "BANK_ACCOUNT",
+
     "BANKACCOUNT",
 
     "IFSC",
 
     "CREDITCARDNUMBER",
+
     "DEBITCARDNUMBER",
 
     "UPIID",
-    "UPI_ID",
 
     "PASSWORD",
+
     "APIKEY",
-    "API_KEY",
 
     "ACCESSTOKEN",
-    "ACCESS_TOKEN",
 
     "SECRETKEY",
-    "SECRET_KEY",
 }
 
 
@@ -64,32 +76,28 @@ ALLOWED_SENSITIVE_LABELS = {
 # ============================================================
 
 LABEL_ALIASES = {
-    "BANKACCOUNT": "BANK_ACCOUNT",
-    "VOTERIDNUM": "VOTERID",
-    "DEBITCARDNUMBER": "CREDITCARDNUMBER",
 
-    "API_KEY": "APIKEY",
-    "ACCESS_TOKEN": "ACCESSTOKEN",
-    "SECRET_KEY": "SECRETKEY",
+    "BANKACCOUNT":
+        "BANK_ACCOUNT",
 
-    "UPI_ID": "UPIID",
+    "VOTERIDNUM":
+        "VOTERID",
+
+    "DEBITCARDNUMBER":
+        "CREDITCARDNUMBER",
+
+    "API_KEY":
+        "APIKEY",
+
+    "ACCESS_TOKEN":
+        "ACCESSTOKEN",
+
+    "SECRET_KEY":
+        "SECRETKEY",
+
+    "UPI_ID":
+        "UPIID",
 }
-
-
-# ============================================================
-# NORMALIZE LABEL
-# ============================================================
-
-def normalize_label(label):
-
-    label = str(
-        label
-    ).strip().upper()
-
-    return LABEL_ALIASES.get(
-        label,
-        label
-    )
 
 
 # ============================================================
@@ -109,6 +117,11 @@ def normalize_text(text):
     )
 
     text = text.replace(
+        "\r\n",
+        "\n"
+    )
+
+    text = text.replace(
         "\r",
         "\n"
     )
@@ -121,6 +134,10 @@ def normalize_text(text):
 
     return text.strip()
 
+
+# ============================================================
+# LABEL NORMALIZATION
+# ============================================================
 
 def normalize_label_text(text):
 
@@ -137,6 +154,10 @@ def normalize_label_text(text):
 
     return text
 
+
+# ============================================================
+# BASIC OCR VALUE CLEANING
+# ============================================================
 
 def normalize_sensitive_ocr_value(value):
 
@@ -185,6 +206,10 @@ def preprocess_ocr_image(image):
 
     return gray
 
+
+# ============================================================
+# OCR VARIANTS
+# ============================================================
 
 def make_ocr_variants(image):
 
@@ -245,56 +270,22 @@ def make_ocr_variants(image):
 
 
 # ============================================================
-# WORD LEVEL OCR
-# ============================================================
-
-def get_image_ocr_data(
-    image,
-    config="--oem 3 --psm 6"
-):
-
-    try:
-
-        return pytesseract.image_to_data(
-            image,
-            config=config,
-            output_type=pytesseract.Output.DICT,
-        )
-
-    except Exception as error:
-
-        print(
-            f"OCR DATA ERROR: {error}"
-        )
-
-        return {
-            "text": [],
-            "left": [],
-            "top": [],
-            "width": [],
-            "height": [],
-            "conf": [],
-        }
-
-
-# ============================================================
-# FULL TEXT OCR
+# OCR TEXT
 # ============================================================
 
 def extract_text_from_image(
     image,
-    config="--oem 3 --psm 6"
+    config=OCR_CONFIG
 ):
 
     try:
 
-        text = pytesseract.image_to_string(
-            image,
-            config=config
-        )
-
         return normalize_text(
-            text
+            pytesseract.image_to_string(
+                image,
+                config=config,
+                timeout=OCR_TIMEOUT
+            )
         )
 
     except Exception as error:
@@ -307,98 +298,270 @@ def extract_text_from_image(
 
 
 # ============================================================
+# OCR WORD DATA
+# ============================================================
+
+def get_image_ocr_data(
+    image,
+    config=OCR_CONFIG
+):
+
+    try:
+
+        data = pytesseract.image_to_data(
+            image,
+            config=config,
+            output_type=pytesseract.Output.DICT,
+            timeout=OCR_TIMEOUT
+        )
+
+        words = []
+
+        total = len(
+            data.get(
+                "text",
+                []
+            )
+        )
+
+        for index in range(total):
+
+            text = str(
+                data["text"][index]
+            ).strip()
+
+            if not text:
+                continue
+
+            try:
+
+                left = int(
+                    data["left"][index]
+                )
+
+                top = int(
+                    data["top"][index]
+                )
+
+                width = int(
+                    data["width"][index]
+                )
+
+                height = int(
+                    data["height"][index]
+                )
+
+                conf = float(
+                    data["conf"][index]
+                )
+
+            except Exception:
+
+                continue
+
+            words.append(
+                {
+                    "text":
+                        text,
+
+                    "left":
+                        left,
+
+                    "top":
+                        top,
+
+                    "width":
+                        width,
+
+                    "height":
+                        height,
+
+                    "right":
+                        left + width,
+
+                    "bottom":
+                        top + height,
+
+                    "conf":
+                        conf,
+                }
+            )
+
+        return words
+
+    except Exception as error:
+
+        print(
+            f"OCR DATA ERROR: {error}"
+        )
+
+        return []
+
+
+# ============================================================
 # NORMALIZE OCR WORDS
 # ============================================================
 
-def normalize_ocr_words(data):
+def normalize_ocr_words(
+    words
+):
 
-    words = []
+    normalized = []
 
-    if not data:
-        return words
+    for original in words:
 
-    texts = data.get(
-        "text",
-        []
-    )
-
-    for i, raw_text in enumerate(
-        texts
-    ):
-
-        text = normalize_sensitive_ocr_value(
-            raw_text
-        )
+        text = str(
+            original.get(
+                "text",
+                ""
+            )
+        ).strip()
 
         if not text:
             continue
 
-        try:
-
-            left = int(
-                data["left"][i]
+        left = float(
+            original.get(
+                "left",
+                original.get(
+                    "x0",
+                    0
+                )
             )
+        )
 
-            top = int(
-                data["top"][i]
+        top = float(
+            original.get(
+                "top",
+                original.get(
+                    "y0",
+                    0
+                )
             )
+        )
 
-            width = int(
-                data["width"][i]
+        right = float(
+            original.get(
+                "right",
+                original.get(
+                    "x1",
+                    left + 1
+                )
             )
+        )
 
-            height = int(
-                data["height"][i]
+        bottom = float(
+            original.get(
+                "bottom",
+                original.get(
+                    "y1",
+                    top + 1
+                )
             )
+        )
 
-        except Exception:
-
-            continue
-
-        try:
-
-            confidence = float(
-                data["conf"][i]
+        width = float(
+            original.get(
+                "width",
+                right - left
             )
+        )
 
-        except Exception:
+        height = float(
+            original.get(
+                "height",
+                bottom - top
+            )
+        )
 
-            confidence = -1
-
-        words.append(
+        normalized.append(
             {
-                "text": text,
+                "text":
+                    text,
 
                 "normalized":
                     normalize_label_text(
                         text
                     ),
 
-                "left": left,
-                "top": top,
+                "left":
+                    left,
 
-                "width": width,
-                "height": height,
+                "top":
+                    top,
+
+                "width":
+                    width,
+
+                "height":
+                    height,
 
                 "right":
-                    left + width,
+                    right,
 
                 "bottom":
-                    top + height,
+                    bottom,
 
-                "confidence":
-                    confidence,
+                "conf":
+                    original.get(
+                        "conf",
+                        original.get(
+                            "confidence",
+                            -1
+                        )
+                    ),
             }
         )
 
-    return words
+    return normalized
+
+
+# ============================================================
+# UNION BOXES
+# ============================================================
+
+def union_boxes(
+    words
+):
+
+    if not words:
+        return None
+
+    return {
+
+        "left":
+            min(
+                word["left"]
+                for word in words
+            ),
+
+        "top":
+            min(
+                word["top"]
+                for word in words
+            ),
+
+        "right":
+            max(
+                word["right"]
+                for word in words
+            ),
+
+        "bottom":
+            max(
+                word["bottom"]
+                for word in words
+            ),
+    }
 
 
 # ============================================================
 # PDF IMAGE EXTRACTION
 # ============================================================
 
-def extract_largest_pdf_image(page):
+def extract_largest_pdf_image(
+    page
+):
 
     try:
 
@@ -429,12 +592,17 @@ def extract_largest_pdf_image(page):
 
                 if (
                     largest is None
-                    or area > largest["area"]
+                    or
+                    area >
+                    largest["area"]
                 ):
 
                     largest = {
-                        "xref": xref,
-                        "area": area,
+                        "xref":
+                            xref,
+
+                        "area":
+                            area,
                     }
 
             except Exception:
@@ -458,10 +626,10 @@ def extract_largest_pdf_image(page):
 
         image = Image.frombytes(
             "RGB",
-            [
+            (
                 pix.width,
-                pix.height,
-            ],
+                pix.height
+            ),
             pix.samples
         )
 
@@ -476,10 +644,18 @@ def extract_largest_pdf_image(page):
         )
 
         return {
-            "image": image,
-            "rect": rect,
-            "width": pix.width,
-            "height": pix.height,
+
+            "image":
+                image,
+
+            "rect":
+                rect,
+
+            "width":
+                pix.width,
+
+            "height":
+                pix.height,
         }
 
     except Exception as error:
@@ -499,12 +675,13 @@ def convert_image_words_to_pdf(
     words,
     image_rect,
     image_width,
-    image_height,
+    image_height
 ):
 
     if (
         image_width <= 0
-        or image_height <= 0
+        or
+        image_height <= 0
     ):
 
         return words
@@ -555,14 +732,35 @@ def convert_image_words_to_pdf(
             {
                 **word,
 
-                "pdf_left": left,
-                "pdf_top": top,
+                "pdf_left":
+                    left,
 
-                "pdf_right": right,
-                "pdf_bottom": bottom,
+                "pdf_top":
+                    top,
 
-                "coordinate_space":
-                    "pdf",
+                "pdf_right":
+                    right,
+
+                "pdf_bottom":
+                    bottom,
+
+                "left":
+                    left,
+
+                "top":
+                    top,
+
+                "right":
+                    right,
+
+                "bottom":
+                    bottom,
+
+                "width":
+                    right - left,
+
+                "height":
+                    bottom - top,
             }
         )
 
@@ -570,10 +768,12 @@ def convert_image_words_to_pdf(
 
 
 # ============================================================
-# AADHAAR VERHOEFF VALIDATION
+# AADHAAR VERHOEFF
 # ============================================================
 
-def verhoeff_validate(number):
+def verhoeff_validate(
+    number
+):
 
     number = re.sub(
         r"\D",
@@ -585,26 +785,44 @@ def verhoeff_validate(number):
         return False
 
     multiplication_table = [
+
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
-        [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
-        [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
-        [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
-        [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
-        [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
-        [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
-        [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
-        [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+
+        [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+
+        [2, 7, 4, 1, 5, 9, 6, 8, 0, 3],
+
+        [3, 8, 0, 5, 7, 2, 9, 4, 1, 6],
+
+        [4, 9, 1, 0, 6, 3, 8, 2, 7, 5],
+
+        [5, 4, 8, 7, 3, 0, 2, 9, 6, 1],
+
+        [6, 2, 9, 8, 0, 1, 5, 3, 4, 7],
+
+        [7, 0, 5, 9, 1, 6, 4, 2, 3, 8],
+
+        [8, 1, 6, 4, 9, 5, 7, 0, 2, 3],
+
+        [9, 3, 7, 2, 8, 4, 1, 6, 5, 0],
     ]
 
     permutation_table = [
+
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+
         [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+
         [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+
         [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+
         [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+
         [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+
         [2, 7, 9, 5, 8, 1, 4, 0, 6, 3],
+
         [7, 0, 4, 3, 2, 5, 9, 1, 8, 6],
     ]
 
@@ -617,7 +835,7 @@ def verhoeff_validate(number):
         )
     )
 
-    for i, digit in enumerate(
+    for index, digit in enumerate(
         reversed_digits
     ):
 
@@ -625,7 +843,7 @@ def verhoeff_validate(number):
             check
         ][
             permutation_table[
-                i % 8
+                index % 8
             ][digit]
         ]
 
@@ -633,10 +851,12 @@ def verhoeff_validate(number):
 
 
 # ============================================================
-# LUHN VALIDATION
+# LUHN
 # ============================================================
 
-def luhn_validate(value):
+def luhn_validate(
+    value
+):
 
     digits = re.sub(
         r"\D",
@@ -644,14 +864,16 @@ def luhn_validate(value):
         str(value)
     )
 
-    if len(digits) < 12:
+    if not (
+        13 <= len(digits) <= 19
+    ):
         return False
 
     total = 0
 
     parity = len(digits) % 2
 
-    for i, digit in enumerate(
+    for index, digit in enumerate(
         digits
     ):
 
@@ -659,7 +881,7 @@ def luhn_validate(value):
             digit
         )
 
-        if i % 2 == parity:
+        if index % 2 == parity:
 
             number *= 2
 
@@ -668,36 +890,109 @@ def luhn_validate(value):
 
         total += number
 
-    return total % 10 == 0
+    return (
+        total % 10 == 0
+    )
 
 
 # ============================================================
 # UPI VALIDATION
 # ============================================================
 
-def validate_upi(value):
+def validate_upi(
+    value
+):
+
+    if not value:
+        return False
 
     value = str(
         value
     ).strip()
 
-    pattern = re.compile(
-        r"^[A-Za-z0-9._-]{2,80}"
-        r"@[A-Za-z][A-Za-z0-9._-]{1,30}$"
+    # --------------------------------------------------------
+    # A UPI ID must contain exactly one @
+    # --------------------------------------------------------
+
+    if value.count("@") != 1:
+        return False
+
+    username, provider = value.split(
+        "@",
+        1
     )
 
-    return bool(
-        pattern.fullmatch(
-            value
-        )
-    )
+    username = username.strip()
+    provider = provider.strip()
+
+    # --------------------------------------------------------
+    # USERNAME
+    # --------------------------------------------------------
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9._-]{2,80}",
+        username
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # PROVIDER
+    # --------------------------------------------------------
+
+    if not re.fullmatch(
+        r"[A-Za-z][A-Za-z0-9._-]{1,30}",
+        provider
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Normal email addresses must NEVER become UPI.
+    # --------------------------------------------------------
+
+    email_domains = {
+
+        "gmail.com",
+        "googlemail.com",
+
+        "yahoo.com",
+        "yahoo.co.in",
+
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+
+        "icloud.com",
+
+        "protonmail.com",
+        "proton.me",
+
+        "mail.com",
+
+        "rediffmail.com",
+    }
+
+    if provider.lower() in email_domains:
+        return False
+
+    # --------------------------------------------------------
+    # A provider containing a normal web/email domain
+    # should not be treated as UPI.
+    # --------------------------------------------------------
+
+    if "." in provider:
+        return False
+
+    return True
 
 
 # ============================================================
 # PAN CLEANING
 # ============================================================
 
-def clean_pan_candidate(value):
+def clean_pan_candidate(
+    value
+):
 
     value = re.sub(
         r"[^A-Za-z0-9]",
@@ -713,6 +1008,7 @@ def clean_pan_candidate(value):
     )
 
     letter_map = {
+
         "0": "O",
         "1": "I",
         "2": "Z",
@@ -722,29 +1018,34 @@ def clean_pan_candidate(value):
     }
 
     digit_map = {
+
         "O": "0",
         "D": "0",
+
         "I": "1",
         "L": "1",
+
         "Z": "2",
         "S": "5",
+
         "G": "6",
         "T": "7",
+
         "B": "8",
         "Q": "0",
     }
 
     # First 5 positions = letters
 
-    for i in range(5):
+    for index in range(5):
 
-        if chars[i].isalpha():
+        if chars[index].isalpha():
             continue
 
-        if chars[i] in letter_map:
+        if chars[index] in letter_map:
 
-            chars[i] = letter_map[
-                chars[i]
+            chars[index] = letter_map[
+                chars[index]
             ]
 
         else:
@@ -753,15 +1054,15 @@ def clean_pan_candidate(value):
 
     # Next 4 positions = digits
 
-    for i in range(5, 9):
+    for index in range(5, 9):
 
-        if chars[i].isdigit():
+        if chars[index].isdigit():
             continue
 
-        if chars[i] in digit_map:
+        if chars[index] in digit_map:
 
-            chars[i] = digit_map[
-                chars[i]
+            chars[index] = digit_map[
+                chars[index]
             ]
 
         else:
@@ -797,6 +1098,148 @@ def clean_pan_candidate(value):
 
 
 # ============================================================
+# NORMALIZE VALUE BY LABEL
+# ============================================================
+
+def normalize_sensitive_value(
+    label,
+    value
+):
+
+    label = LABEL_ALIASES.get(
+        str(label).upper().strip(),
+        str(label).upper().strip()
+    )
+
+    value = normalize_sensitive_ocr_value(
+        value
+    )
+
+    if label == "PAN":
+
+        return re.sub(
+            r"[^A-Za-z0-9]",
+            "",
+            value.upper()
+        )
+
+    if label == "AADHAAR":
+
+        return re.sub(
+            r"\D",
+            "",
+            value
+        )
+
+    if label == "PASSPORTNUM":
+
+        return re.sub(
+            r"[^A-Za-z0-9]",
+            "",
+            value.upper()
+        )
+
+    if label == "DRIVERLICENSENUM":
+
+        value = re.sub(
+            r"[^A-Za-z0-9-]",
+            "",
+            value.upper()
+        )
+
+        # OCR commonly reads O as 0 in the numeric
+        # portion of an Indian driving licence.
+
+        if len(value) >= 2:
+
+            prefix = value[:2]
+
+            remainder = value[2:]
+
+            remainder = remainder.replace(
+                "O",
+                "0"
+            )
+
+            value = (
+                prefix
+                +
+                remainder
+            )
+
+        return value
+
+    if label in {
+        "VOTERID",
+        "VOTERIDNUM",
+    }:
+
+        return re.sub(
+            r"[^A-Za-z0-9]",
+            "",
+            value.upper()
+        )
+
+    if label in {
+        "BANK_ACCOUNT",
+        "BANKACCOUNT",
+    }:
+
+        return re.sub(
+            r"\D",
+            "",
+            value
+        )
+
+    if label == "IFSC":
+
+        value = re.sub(
+            r"[^A-Za-z0-9]",
+            "",
+            value.upper()
+        )
+
+        if (
+            len(value) == 11
+            and value[4] == "O"
+        ):
+
+            value = (
+                value[:4]
+                +
+                "0"
+                +
+                value[5:]
+            )
+
+        return value
+
+    if label in {
+        "CREDITCARDNUMBER",
+        "DEBITCARDNUMBER",
+    }:
+
+        return re.sub(
+            r"\D",
+            "",
+            value
+        )
+
+    if label in {
+        "UPIID",
+        "UPI_ID",
+    }:
+
+        return re.sub(
+            r"\s+",
+            "",
+            value
+        )
+
+    return value
+
+
+# ============================================================
 # SENSITIVE VALUE VALIDATION
 # ============================================================
 
@@ -805,11 +1248,13 @@ def validate_sensitive_value(
     value
 ):
 
-    label = normalize_label(
-        label
+    label = LABEL_ALIASES.get(
+        str(label).upper().strip(),
+        str(label).upper().strip()
     )
 
-    value = normalize_sensitive_ocr_value(
+    value = normalize_sensitive_value(
+        label,
         value
     )
 
@@ -822,16 +1267,10 @@ def validate_sensitive_value(
 
     if label == "PAN":
 
-        compact = re.sub(
-            r"[^A-Za-z0-9]",
-            "",
-            value
-        ).upper()
-
         return bool(
             re.fullmatch(
                 r"[A-Z]{5}[0-9]{4}[A-Z]",
-                compact
+                value.upper()
             )
         )
 
@@ -861,71 +1300,15 @@ def validate_sensitive_value(
         )
 
     # --------------------------------------------------------
-    # CREDIT / DEBIT CARD
-    # --------------------------------------------------------
-
-    if label == "CREDITCARDNUMBER":
-
-        digits = re.sub(
-            r"\D",
-            "",
-            value
-        )
-
-        if not (
-            13 <= len(digits) <= 19
-        ):
-            return False
-
-        return luhn_validate(
-            digits
-        )
-
-    # --------------------------------------------------------
-    # IFSC
-    # --------------------------------------------------------
-
-    if label == "IFSC":
-
-        compact = re.sub(
-            r"[^A-Za-z0-9]",
-            "",
-            value
-        ).upper()
-
-        return bool(
-            re.fullmatch(
-                r"[A-Z]{4}0[A-Z0-9]{6}",
-                compact
-            )
-        )
-
-    # --------------------------------------------------------
-    # UPI
-    # --------------------------------------------------------
-
-    if label == "UPIID":
-
-        return validate_upi(
-            value
-        )
-
-    # --------------------------------------------------------
     # PASSPORT
     # --------------------------------------------------------
 
     if label == "PASSPORTNUM":
 
-        compact = re.sub(
-            r"[^A-Za-z0-9]",
-            "",
-            value
-        ).upper()
-
         return bool(
             re.fullmatch(
                 r"[A-Z][0-9]{7}",
-                compact
+                value.upper()
             )
         )
 
@@ -938,13 +1321,15 @@ def validate_sensitive_value(
         compact = re.sub(
             r"[^A-Za-z0-9]",
             "",
-            value
-        ).upper()
+            value.upper()
+        )
+
+        # Indian DL numbers commonly begin with
+        # a two-letter state code followed by digits.
 
         return bool(
             re.fullmatch(
-                r"[A-Z]{2}[0-9]{2}"
-                r"[0-9A-Z]{4,16}",
+                r"[A-Z]{2}[0-9]{2}[A-Z0-9]{6,16}",
                 compact
             )
         )
@@ -958,8 +1343,8 @@ def validate_sensitive_value(
         compact = re.sub(
             r"[^A-Za-z0-9]",
             "",
-            value
-        ).upper()
+            value.upper()
+        )
 
         return bool(
             re.fullmatch(
@@ -972,7 +1357,10 @@ def validate_sensitive_value(
     # BANK ACCOUNT
     # --------------------------------------------------------
 
-    if label == "BANK_ACCOUNT":
+    if label in {
+        "BANK_ACCOUNT",
+        "BANKACCOUNT",
+    }:
 
         digits = re.sub(
             r"\D",
@@ -980,44 +1368,112 @@ def validate_sensitive_value(
             value
         )
 
-        return bool(
-            9 <= len(digits) <= 18
+        return (
+            8 <= len(digits) <= 18
         )
 
     # --------------------------------------------------------
-    # CREDENTIALS
+    # IFSC
+    # --------------------------------------------------------
+
+    if label == "IFSC":
+
+        compact = re.sub(
+            r"[^A-Za-z0-9]",
+            "",
+            value.upper()
+        )
+
+        return bool(
+            re.fullmatch(
+                r"[A-Z]{4}0[A-Z0-9]{6}",
+                compact
+            )
+        )
+
+    # --------------------------------------------------------
+    # CREDIT / DEBIT CARD
     # --------------------------------------------------------
 
     if label in {
-        "PASSWORD",
-        "APIKEY",
-        "ACCESSTOKEN",
-        "SECRETKEY",
+        "CREDITCARDNUMBER",
+        "DEBITCARDNUMBER",
     }:
+
+        return luhn_validate(
+            value
+        )
+
+    # --------------------------------------------------------
+    # UPI
+    # --------------------------------------------------------
+
+    if label == "UPIID":
+
+        return validate_upi(
+            value
+        )
+
+    # --------------------------------------------------------
+    # PASSWORD
+    # --------------------------------------------------------
+
+    if label == "PASSWORD":
 
         if len(value) < 8:
             return False
-
-        # A normal word is not a credential.
 
         if re.fullmatch(
             r"[A-Za-z]+",
             value
         ):
-
-            return False
-
-        # Require numbers or credential
-        # punctuation.
-
-        if not re.search(
-            r"[0-9_\-+=/:.@]",
-            value
-        ):
-
             return False
 
         return True
+
+    # --------------------------------------------------------
+    # API KEY
+    # --------------------------------------------------------
+
+    if label == "APIKEY":
+
+        return bool(
+            re.search(
+                r"[A-Za-z0-9_\-]",
+                value
+            )
+        ) and len(value) >= 12
+
+    # --------------------------------------------------------
+    # ACCESS TOKEN
+    # --------------------------------------------------------
+
+    if label == "ACCESSTOKEN":
+
+        return (
+            len(value) >= 12
+            and
+            (
+                value.startswith("eyJ")
+                or
+                "." in value
+            )
+        )
+
+    # --------------------------------------------------------
+    # SECRET KEY
+    # --------------------------------------------------------
+
+    if label == "SECRETKEY":
+
+        return (
+            len(value) >= 8
+            and
+            not re.fullmatch(
+                r"[A-Za-z]+",
+                value
+            )
+        )
 
     return False
 
@@ -1029,92 +1485,111 @@ def validate_sensitive_value(
 FIELD_LABELS = {
 
     "PAN": [
-        "PAN",
-        "PERMANENT ACCOUNT NUMBER",
-        "PERMANENT ACCOUNT NUMBER CARD",
+
+        "pan",
+        "pan number",
+        "pan no",
     ],
 
     "AADHAAR": [
-        "AADHAAR",
-        "AADHAAR NUMBER",
-        "AADHAAR NO",
-        "UID",
-        "UNIQUE IDENTIFICATION NUMBER",
+
+        "aadhaar",
+        "aadhaar number",
+        "aadhaar no",
+
+        "aadhar",
+        "aadhar number",
+        "aadhar no",
     ],
 
     "PASSPORTNUM": [
-        "PASSPORT",
-        "PASSPORT NUMBER",
-        "PASSPORT NO",
+
+        "passport number",
+        "passport no",
     ],
 
     "DRIVERLICENSENUM": [
-        "DRIVING LICENCE",
-        "DRIVING LICENSE",
-        "DRIVING LICENCE NUMBER",
-        "DRIVING LICENSE NUMBER",
-        "DL NUMBER",
-        "DL NO",
+
+        "driving license number",
+        "driving licence number",
+
+        "driving license no",
+        "driving licence no",
+
+        "dl number",
+        "dl no",
     ],
 
     "VOTERID": [
-        "VOTER ID",
-        "VOTER ID NUMBER",
-        "EPIC",
-        "EPIC NUMBER",
+
+        "voter id",
+        "voter id number",
+        "voter id no",
+
+        "epic",
+        "epic number",
+        "epic no",
     ],
 
     "BANK_ACCOUNT": [
-        "BANK ACCOUNT",
-        "ACCOUNT NUMBER",
-        "ACCOUNT NO",
-        "A/C NO",
-        "A/C NUMBER",
+
+        "bank account",
+        "bank account number",
+        "bank account no",
     ],
 
     "IFSC": [
-        "IFSC",
-        "IFSC CODE",
+
+        "ifsc",
+        "ifsc code",
+        "ifsc number",
     ],
 
     "CREDITCARDNUMBER": [
-        "CREDIT CARD",
-        "CREDIT CARD NUMBER",
-        "CREDIT CARD NO",
+
+        "credit card",
+        "credit card number",
+        "credit card no",
     ],
 
     "DEBITCARDNUMBER": [
-        "DEBIT CARD",
-        "DEBIT CARD NUMBER",
-        "DEBIT CARD NO",
+
+        "debit card",
+        "debit card number",
+        "debit card no",
     ],
 
     "UPIID": [
-        "UPI",
-        "UPI ID",
-        "UPI ID NUMBER",
+
+        "upi id",
+        "upi",
     ],
 
     "PASSWORD": [
-        "PASSWORD",
-        "PASSCODE",
-        "PWD",
+
+        "password",
+        "passwd",
+        "pwd",
     ],
 
     "APIKEY": [
-        "API KEY",
-        "APIKEY",
+
+        "api key",
+        "apikey",
     ],
 
     "ACCESSTOKEN": [
-        "ACCESS TOKEN",
-        "AUTH TOKEN",
-        "BEARER TOKEN",
+
+        "access token",
+        "access_token",
+        "bearer token",
     ],
 
     "SECRETKEY": [
-        "SECRET KEY",
-        "CLIENT SECRET",
+
+        "secret key",
+        "secret_key",
+        "client secret",
     ],
 }
 
@@ -1132,7 +1607,8 @@ DIRECT_PATTERNS = {
 
     "AADHAAR": re.compile(
         r"\b\d{4}[\s-]\d{4}[\s-]\d{4}\b"
-        r"|\b\d{12}\b"
+        r"|"
+        r"\b\d{12}\b"
     ),
 
     "CREDITCARDNUMBER": re.compile(
@@ -1146,7 +1622,8 @@ DIRECT_PATTERNS = {
 
     "UPIID": re.compile(
         r"\b[A-Za-z0-9._-]{2,80}"
-        r"@[A-Za-z][A-Za-z0-9._-]{1,30}\b"
+        r"@"
+        r"[A-Za-z][A-Za-z0-9._-]{1,30}\b"
     ),
 
     "PASSPORTNUM": re.compile(
@@ -1161,7 +1638,7 @@ DIRECT_PATTERNS = {
 
     "DRIVERLICENSENUM": re.compile(
         r"\b[A-Z]{2}[0-9]{2}"
-        r"[0-9A-Z]{4,16}\b",
+        r"[A-Z0-9]{6,16}\b",
         re.IGNORECASE
     ),
 
@@ -1193,7 +1670,7 @@ DIRECT_PATTERNS = {
 
 
 # ============================================================
-# CREATE DETECTION
+# MAKE DETECTION
 # ============================================================
 
 def make_detection(
@@ -1201,23 +1678,32 @@ def make_detection(
     value,
     bbox=None,
     page_number=None,
-    source="ocr",
-    coordinate_space=None,
+    source="ocr"
 ):
 
-    label = normalize_label(
-        label
+    label = LABEL_ALIASES.get(
+        str(label).upper(),
+        str(label).upper()
     )
 
-    value = normalize_sensitive_ocr_value(
+    value = normalize_sensitive_value(
+        label,
         value
     )
 
     detection = {
-        "label": label,
-        "value": value,
-        "text": value,
-        "source": source,
+
+        "label":
+            label,
+
+        "value":
+            value,
+
+        "text":
+            value,
+
+        "source":
+            source,
     }
 
     if bbox:
@@ -1225,30 +1711,174 @@ def make_detection(
         detection.update(
             {
                 "left":
-                    bbox.get("left"),
+                    bbox.get(
+                        "left"
+                    ),
 
                 "top":
-                    bbox.get("top"),
+                    bbox.get(
+                        "top"
+                    ),
 
                 "right":
-                    bbox.get("right"),
+                    bbox.get(
+                        "right"
+                    ),
 
                 "bottom":
-                    bbox.get("bottom"),
+                    bbox.get(
+                        "bottom"
+                    ),
             }
         )
-
-    if coordinate_space:
-
-        detection[
-            "coordinate_space"
-        ] = coordinate_space
 
     if page_number is not None:
 
         detection[
             "page_number"
         ] = page_number
+
+    return detection
+
+
+# ============================================================
+# FIND EXACT VALUE BBOX
+# ============================================================
+
+def find_exact_value_bbox(
+    words,
+    value
+):
+
+    target = normalize_label_text(
+        value
+    )
+
+    if not target:
+        return None
+
+    for word in words:
+
+        candidate = normalize_label_text(
+            word.get(
+                "text",
+                ""
+            )
+        )
+
+        if candidate == target:
+
+            return {
+                "left":
+                    word["left"],
+
+                "top":
+                    word["top"],
+
+                "right":
+                    word["right"],
+
+                "bottom":
+                    word["bottom"],
+            }
+
+    return None
+
+
+# ============================================================
+# FIND PARTIAL VALUE BBOX
+# ============================================================
+
+def find_partial_value_bbox(
+    words,
+    value
+):
+
+    target = normalize_label_text(
+        value
+    )
+
+    if not target:
+        return None
+
+    for index in range(
+        len(words)
+    ):
+
+        combined = ""
+
+        selected = []
+
+        for j in range(
+            index,
+            min(
+                len(words),
+                index + 5
+            )
+        ):
+
+            text = words[j].get(
+                "text",
+                ""
+            )
+
+            normalized = normalize_label_text(
+                text
+            )
+
+            if not normalized:
+                break
+
+            combined += normalized
+
+            selected.append(
+                words[j]
+            )
+
+            if combined == target:
+
+                return union_boxes(
+                    selected
+                )
+
+            if len(combined) >= len(target):
+
+                break
+
+    return None
+
+
+# ============================================================
+# ATTACH BBOX TO FULL-TEXT DETECTION
+# ============================================================
+
+def attach_bbox_to_detection(
+    detection,
+    words
+):
+
+    value = detection.get(
+        "value",
+        ""
+    )
+
+    bbox = find_exact_value_bbox(
+        words,
+        value
+    )
+
+    if not bbox:
+
+        bbox = find_partial_value_bbox(
+            words,
+            value
+        )
+
+    if bbox:
+
+        detection.update(
+            bbox
+        )
 
     return detection
 
@@ -1378,7 +2008,7 @@ def detect_from_full_text(
             )
 
     # --------------------------------------------------------
-    # CARD
+    # CREDIT CARD
     # --------------------------------------------------------
 
     for match in DIRECT_PATTERNS[
@@ -1404,7 +2034,7 @@ def detect_from_full_text(
                         "CREDITCARDNUMBER",
 
                     "value":
-                        value,
+                        digits,
 
                     "source":
                         "ocr_full_text",
@@ -1426,6 +2056,9 @@ def detect_from_full_text(
     ].finditer(text):
 
         value = match.group()
+
+        # IMPORTANT:
+        # Email addresses are rejected here.
 
         if validate_sensitive_value(
             "UPIID",
@@ -1478,11 +2111,12 @@ def detect_from_full_text(
             )
         ]
 
-        normalized_context = normalize_label_text(
+        context_normalized = normalize_label_text(
             context
         )
 
-        if "PASSPORT" not in normalized_context:
+        if "PASSPORT" not in context_normalized:
+
             continue
 
         detections.append(
@@ -1523,31 +2157,32 @@ def detect_from_full_text(
         context = text[
             max(
                 0,
-                match.start() - 120
+                match.start() - 150
             ):
             min(
                 len(text),
-                match.end() + 120
+                match.end() + 150
             )
         ]
 
-        normalized_context = normalize_label_text(
+        context_normalized = normalize_label_text(
             context
         )
 
         if not (
             "DRIVINGLICENCE"
-            in normalized_context
+            in context_normalized
             or
             "DRIVINGLICENSE"
-            in normalized_context
+            in context_normalized
             or
             "DLNUMBER"
-            in normalized_context
+            in context_normalized
             or
             "DLNO"
-            in normalized_context
+            in context_normalized
         ):
+
             continue
 
         detections.append(
@@ -1596,17 +2231,18 @@ def detect_from_full_text(
             )
         ]
 
-        normalized_context = normalize_label_text(
+        context_normalized = normalize_label_text(
             context
         )
 
         if not (
             "VOTERID"
-            in normalized_context
+            in context_normalized
             or
             "EPIC"
-            in normalized_context
+            in context_normalized
         ):
+
             continue
 
         detections.append(
@@ -1792,231 +2428,47 @@ def detect_from_full_text(
 
 
 # ============================================================
-# BOUNDING BOX UTILITIES
+# LABEL-BASED DETECTION
 # ============================================================
 
-def make_bbox(
-    left,
-    top,
-    width,
-    height
-):
-
-    return {
-        "left": int(left),
-        "top": int(top),
-        "right": int(
-            left + width
-        ),
-        "bottom": int(
-            top + height
-        ),
-    }
-
-
-def union_boxes(boxes):
-
-    if not boxes:
-        return None
-
-    return {
-        "left": min(
-            box["left"]
-            for box in boxes
-        ),
-
-        "top": min(
-            box["top"]
-            for box in boxes
-        ),
-
-        "right": max(
-            box["right"]
-            for box in boxes
-        ),
-
-        "bottom": max(
-            box["bottom"]
-            for box in boxes
-        ),
-    }
-
-
-# ============================================================
-# EXACT VALUE BBOX
-# ============================================================
-
-def find_exact_value_bbox(
+def detect_labeled_value(
     words,
-    value
+    label
 ):
 
-    target = normalize_label_text(
-        value
+    label = LABEL_ALIASES.get(
+        str(label).upper(),
+        str(label).upper()
     )
 
-    if not target:
-        return None
-
-    for word in words:
-
-        if (
-            word.get("normalized", "")
-            ==
-            target
-        ):
-
-            return {
-                "left":
-                    word["left"],
-
-                "top":
-                    word["top"],
-
-                "right":
-                    word["right"],
-
-                "bottom":
-                    word["bottom"],
-            }
-
-    return None
-
-
-# ============================================================
-# MULTI-WORD VALUE BBOX
-# ============================================================
-
-def find_partial_value_bbox(
-    words,
-    value
-):
-
-    target = normalize_label_text(
-        value
+    label_variants = FIELD_LABELS.get(
+        label,
+        []
     )
 
-    if not target:
-        return None
+    normalized_labels = {
 
-    for start in range(
-        len(words)
-    ):
-
-        combined = ""
-
-        selected = []
-
-        for end in range(
-            start,
-            min(
-                len(words),
-                start + 8
-            )
-        ):
-
-            combined += (
-                words[end].get(
-                    "normalized",
-                    ""
-                )
-            )
-
-            selected.append(
-                words[end]
-            )
-
-            if combined == target:
-
-                return union_boxes(
-                    selected
-                )
-
-            if len(combined) > len(target):
-                break
-
-    return None
-
-
-# ============================================================
-# ATTACH BBOX
-# ============================================================
-
-def attach_bbox_to_detection(
-    detection,
-    words
-):
-
-    value = detection.get(
-        "value",
-        ""
-    )
-
-    bbox = find_exact_value_bbox(
-        words,
-        value
-    )
-
-    if bbox:
-
-        detection.update(
-            bbox
+        normalize_label_text(
+            item
         )
 
-        return detection
-
-    bbox = find_partial_value_bbox(
-        words,
-        value
-    )
-
-    if bbox:
-
-        detection.update(
-            bbox
-        )
-
-    return detection
-
-
-# ============================================================
-# PAN LABEL LOCATION
-# ============================================================
-
-def find_pan_label_region(
-    words,
-    image_width,
-    image_height
-):
-
-    """
-    Find the PAN label dynamically.
-
-    No fixed PAN-card coordinates are used.
-
-    The function looks for words such as:
-        PERMANENT
-        ACCOUNT
-        NUMBER
-        CARD
-    """
-
-    normalized = [
-        word.get(
-            "normalized",
-            ""
-        )
-        for word in words
-    ]
-
-    target_words = {
-        "PERMANENT",
-        "ACCOUNT",
-        "NUMBER",
-        "CARD",
+        for item in label_variants
     }
 
-    for i, word in enumerate(
+    if not normalized_labels:
+        return []
+
+    detections = []
+
+    strict_credentials = {
+
+        "PASSWORD",
+        "APIKEY",
+        "ACCESSTOKEN",
+        "SECRETKEY",
+    }
+
+    for index, word in enumerate(
         words
     ):
 
@@ -2025,437 +2477,361 @@ def find_pan_label_region(
             ""
         )
 
-        if current not in target_words:
+        if not current:
             continue
 
-        selected = [word]
+        # ----------------------------------------------------
+        # Single-word labels
+        # ----------------------------------------------------
 
-        combined = current
+        matched_label_length = 0
+        matched_label_words = []
 
-        for j in range(
-            i + 1,
-            min(
-                len(words),
-                i + 6
-            )
+        for length in range(
+            1,
+            5
         ):
 
-            next_word = words[j]
+            end = index + length
 
-            # Keep approximately same text line.
-            if abs(
-                next_word["top"]
-                -
-                word["top"]
-            ) > 100:
-
+            if end > len(words):
                 break
 
-            selected.append(
-                next_word
-            )
+            group = words[
+                index:end
+            ]
 
-            combined += (
-                next_word.get(
+            # All label words should be on same row.
+
+            if len(group) > 1:
+
+                tops = [
+                    item["top"]
+                    for item in group
+                ]
+
+                if (
+                    max(tops)
+                    -
+                    min(tops)
+                    > 80
+                ):
+                    break
+
+            group_text = "".join(
+                item.get(
                     "normalized",
                     ""
+                )
+                for item in group
+            )
+
+            group_text_spaced = normalize_label_text(
+                " ".join(
+                    item.get(
+                        "text",
+                        ""
+                    )
+                    for item in group
                 )
             )
 
             if (
-                "PERMANENTACCOUNTNUMBER"
-                in combined
+                group_text in normalized_labels
                 or
-                "PERMANENTACCOUNTNUMBERCARD"
-                in combined
+                group_text_spaced in normalized_labels
             ):
 
-                return union_boxes(
-                    selected
-                )
+                matched_label_length = length
 
-    return None
+                matched_label_words = group
 
+        if not matched_label_length:
+            continue
 
-# ============================================================
-# TARGETED PAN OCR WITH BOUNDING BOX
-# ============================================================
-
-def detect_pan_with_targeted_ocr(
-    image
-):
-
-    """
-    Generic targeted PAN detection.
-
-    It does NOT assume where the PAN is located.
-
-    It performs:
-        1. Normal OCR data
-        2. Multiple OCR configurations
-        3. PAN whitelist OCR
-        4. Dynamic label-based crop when required
-
-    Returned coordinates are IMAGE coordinates.
-    """
-
-    if image is None:
-        return []
-
-    detections = []
-
-    seen = set()
-
-    if image.mode != "RGB":
-
-        image = image.convert(
-            "RGB"
+        label_right = max(
+            item["right"]
+            for item in matched_label_words
         )
 
-    variants = make_ocr_variants(
-        image
-    )
+        label_top = min(
+            item["top"]
+            for item in matched_label_words
+        )
 
-    # --------------------------------------------------------
-    # Pass 1:
-    # Search normal OCR data.
-    # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Look AFTER the complete label.
+        #
+        # This is the important fix.
+        #
+        # Example:
+        #
+        # Bank Account Number : 123456789012
+        #
+        # The value may be 4 words after "Bank".
+        # ----------------------------------------------------
 
-    for variant_name, variant in variants:
+        start_value_index = (
+            index
+            +
+            matched_label_length
+        )
 
-        configs = [
-            "--oem 3 --psm 6",
-            "--oem 3 --psm 11",
-            "--oem 3 --psm 12",
-        ]
+        candidate_words = []
 
-        for config in configs:
+        for j in range(
+            start_value_index,
+            min(
+                len(words),
+                start_value_index + 7
+            )
+        ):
 
-            data = get_image_ocr_data(
-                variant,
-                config=config
+            candidate = words[j]
+
+            value_text = str(
+                candidate.get(
+                    "text",
+                    ""
+                )
+            ).strip()
+
+            if not value_text:
+                continue
+
+            normalized_candidate = candidate.get(
+                "normalized",
+                ""
             )
 
-            words = normalize_ocr_words(
-                data
+            # ------------------------------------------------
+            # Same-row check
+            # ------------------------------------------------
+
+            vertical_distance = abs(
+                candidate["top"]
+                -
+                label_top
             )
 
-            for word in words:
+            if vertical_distance > 80:
 
-                candidate = (
-                    clean_pan_candidate(
-                        word["text"]
-                    )
-                )
+                break
 
-                if not candidate:
-                    continue
+            # ------------------------------------------------
+            # Horizontal distance
+            # ------------------------------------------------
 
-                if not validate_sensitive_value(
-                    "PAN",
-                    candidate
-                ):
-                    continue
+            horizontal_distance = (
+                candidate["left"]
+                -
+                label_right
+            )
 
-                if candidate in seen:
-                    continue
+            if horizontal_distance > 500:
 
-                seen.add(
-                    candidate
-                )
+                break
 
-                bbox = {
-                    "left":
-                        word["left"],
+            # ------------------------------------------------
+            # Ignore separators.
+            #
+            # This fixes:
+            #
+            # Label : VALUE
+            #
+            # where ":" occupies its own OCR word.
+            # ------------------------------------------------
 
-                    "top":
-                        word["top"],
-
-                    "right":
-                        word["right"],
-
-                    "bottom":
-                        word["bottom"],
-                }
-
-                detections.append(
-                    make_detection(
-                        "PAN",
-                        candidate,
-                        bbox=bbox,
-                        source="pan_ocr_data",
-                        coordinate_space="image",
-                    )
-                )
-
-    # --------------------------------------------------------
-    # Pass 2:
-    # Full OCR text.
-    # --------------------------------------------------------
-
-    for variant_name, variant in variants:
-
-        for config in [
-            "--oem 3 --psm 6",
-            "--oem 3 --psm 11",
-            "--oem 3 --psm 12",
-        ]:
-
-            try:
-
-                text = pytesseract.image_to_string(
-                    variant,
-                    config=config
-                )
-
-            except Exception:
+            if normalized_candidate in {
+                "",
+                ":",
+                "-",
+                "–",
+                "—",
+                ">",
+                "|",
+            }:
 
                 continue
 
-            if not text:
+            if value_text in {
+                ":",
+                "-",
+                "–",
+                "—",
+                ">",
+                "|",
+            }:
+
                 continue
 
-            # Search all plausible alphanumeric tokens.
-            tokens = re.findall(
-                r"[A-Za-z0-9]{8,14}",
-                text
+            # ------------------------------------------------
+            # If another approved field label is encountered,
+            # stop searching.
+            # ------------------------------------------------
+
+            all_label_values = set()
+
+            for values in FIELD_LABELS.values():
+
+                for item in values:
+
+                    all_label_values.add(
+                        normalize_label_text(
+                            item
+                        )
+                    )
+
+            if normalized_candidate in all_label_values:
+
+                break
+
+            candidate_words.append(
+                candidate
             )
 
-            for token in tokens:
+            # ------------------------------------------------
+            # For these document fields, the value is normally
+            # one OCR word. Therefore validate each candidate.
+            # ------------------------------------------------
 
-                candidate = (
-                    clean_pan_candidate(
-                        token
-                    )
-                )
+            candidate_value = candidate.get(
+                "text",
+                ""
+            )
 
-                if not candidate:
+            candidate_value = normalize_sensitive_value(
+                label,
+                candidate_value
+            )
+
+            # ------------------------------------------------
+            # Credential protection
+            # ------------------------------------------------
+
+            if label in strict_credentials:
+
+                if len(candidate_value) < 8:
                     continue
 
-                if not validate_sensitive_value(
-                    "PAN",
-                    candidate
+                if re.fullmatch(
+                    r"[A-Za-z]+",
+                    candidate_value
                 ):
+
                     continue
 
-                if candidate in seen:
-                    continue
-
-                # We found the PAN value but not its position.
-                # Continue below and try to find its bbox.
-                seen.add(
-                    candidate
-                )
-
-                detections.append(
-                    make_detection(
-                        "PAN",
-                        candidate,
-                        source="pan_targeted_ocr",
-                        coordinate_space="image",
-                    )
-                )
-
-    # --------------------------------------------------------
-    # Pass 3:
-    # Dynamic PAN-label crop.
-    #
-    # This is NOT a fixed card coordinate.
-    # It finds "Permanent Account Number Card"
-    # and examines the area around that detected label.
-    # --------------------------------------------------------
-
-    for variant_name, variant in variants:
-
-        data = get_image_ocr_data(
-            variant,
-            config="--oem 3 --psm 11"
-        )
-
-        words = normalize_ocr_words(
-            data
-        )
-
-        label_bbox = (
-            find_pan_label_region(
-                words,
-                image.width,
-                image.height
-            )
-        )
-
-        if not label_bbox:
-            continue
-
-        # ----------------------------------------------------
-        # Dynamic crop below the detected label.
-        # ----------------------------------------------------
-
-        crop_left = max(
-            0,
-            int(
-                label_bbox["left"]
-                - label_bbox["left"] * 0.20
-            )
-        )
-
-        crop_top = max(
-            0,
-            int(
-                label_bbox["bottom"]
-                - 10
-            )
-        )
-
-        crop_right = min(
-            image.width,
-            int(
-                label_bbox["right"]
-                +
-                max(
-                    100,
-                    image.width * 0.35
-                )
-            )
-        )
-
-        crop_bottom = min(
-            image.height,
-            int(
-                label_bbox["bottom"]
-                +
-                max(
-                    120,
-                    image.height * 0.25
-                )
-            )
-        )
-
-        if crop_right <= crop_left:
-            continue
-
-        if crop_bottom <= crop_top:
-            continue
-
-        crop = variant.crop(
-            (
-                crop_left,
-                crop_top,
-                crop_right,
-                crop_bottom,
-            )
-        )
-
-        crop_configs = [
-            "--oem 3 --psm 6 "
-            "-c tessedit_char_whitelist="
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-
-            "--oem 3 --psm 11 "
-            "-c tessedit_char_whitelist="
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-
-            "--oem 3 --psm 12 "
-            "-c tessedit_char_whitelist="
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        ]
-
-        for config in crop_configs:
-
-            crop_data = get_image_ocr_data(
-                crop,
-                config=config
-            )
-
-            crop_words = normalize_ocr_words(
-                crop_data
-            )
-
-            for word in crop_words:
-
-                candidate = (
-                    clean_pan_candidate(
-                        word["text"]
-                    )
-                )
-
-                if not candidate:
-                    continue
-
-                if not validate_sensitive_value(
-                    "PAN",
-                    candidate
+                if not re.search(
+                    r"[0-9_\-+=/:.@]",
+                    candidate_value
                 ):
+
+                    continue
+
+            # ------------------------------------------------
+            # UPI
+            # ------------------------------------------------
+
+            if label == "UPIID":
+
+                # Never accept an email address.
+
+                if "@" not in candidate_value:
+
+                    continue
+
+                if not validate_upi(
+                    candidate_value
+                ):
+
                     continue
 
                 bbox = {
                     "left":
-                        crop_left
-                        +
-                        word["left"],
+                        candidate["left"],
 
                     "top":
-                        crop_top
-                        +
-                        word["top"],
+                        candidate["top"],
 
                     "right":
-                        crop_left
-                        +
-                        word["right"],
+                        candidate["right"],
 
                     "bottom":
-                        crop_top
-                        +
-                        word["bottom"],
+                        candidate["bottom"],
                 }
-
-                if candidate in seen:
-
-                    # Upgrade a previous detection
-                    # that had no coordinates.
-                    for existing in detections:
-
-                        if (
-                            existing.get(
-                                "value"
-                            )
-                            ==
-                            candidate
-                        ):
-
-                            existing.update(
-                                bbox
-                            )
-
-                            existing[
-                                "coordinate_space"
-                            ] = "image"
-
-                    continue
-
-                seen.add(
-                    candidate
-                )
 
                 detections.append(
                     make_detection(
-                        "PAN",
-                        candidate,
+                        label,
+                        candidate_value,
                         bbox=bbox,
-                        source="pan_targeted_crop",
-                        coordinate_space="image",
+                        source="ocr_label"
                     )
                 )
+
+                break
+
+            # ------------------------------------------------
+            # Normal sensitive identifiers
+            # ------------------------------------------------
+
+            if validate_sensitive_value(
+                label,
+                candidate_value
+            ):
+
+                bbox = {
+
+                    "left":
+                        candidate["left"],
+
+                    "top":
+                        candidate["top"],
+
+                    "right":
+                        candidate["right"],
+
+                    "bottom":
+                        candidate["bottom"],
+                }
+
+                detections.append(
+                    make_detection(
+                        label,
+                        candidate_value,
+                        bbox=bbox,
+                        source="ocr_label"
+                    )
+                )
+
+                break
+
+            # ------------------------------------------------
+            # Don't keep combining arbitrary words.
+            #
+            # This prevents:
+            #
+            # "Father's"
+            # "Department"
+            # "Sharma"
+            #
+            # from becoming credentials.
+            # ------------------------------------------------
+
+            if len(candidate_words) >= 2:
+
+                break
 
     return detections
 
 
 # ============================================================
-# AADHAAR WORD DETECTION
+# NUMERIC CANDIDATES
 # ============================================================
 
-def get_numeric_candidates(words):
+def get_numeric_candidates(
+    words
+):
 
     candidates = []
 
@@ -2464,7 +2840,10 @@ def get_numeric_candidates(words):
         digits = re.sub(
             r"\D",
             "",
-            word["text"]
+            word.get(
+                "text",
+                ""
+            )
         )
 
         if not digits:
@@ -2473,30 +2852,78 @@ def get_numeric_candidates(words):
         candidates.append(
             {
                 **word,
-                "digits": digits,
+
+                "digits":
+                    digits,
             }
         )
 
     return candidates
 
 
+# ============================================================
+# AADHAAR WORD DETECTION
+# ============================================================
+
 def detect_aadhaar_from_words(
     words
 ):
+
+    detections = []
 
     candidates = get_numeric_candidates(
         words
     )
 
-    detections = []
-
-    for i in range(
-        len(candidates) - 2
+    for index in range(
+        len(candidates)
     ):
 
-        first = candidates[i]
-        second = candidates[i + 1]
-        third = candidates[i + 2]
+        first = candidates[index]
+
+        # One word containing 12 digits
+
+        if len(
+            first["digits"]
+        ) == 12:
+
+            number = first[
+                "digits"
+            ]
+
+            if validate_sensitive_value(
+                "AADHAAR",
+                number
+            ):
+
+                bbox = union_boxes(
+                    [first]
+                )
+
+                detections.append(
+                    make_detection(
+                        "AADHAAR",
+                        number,
+                        bbox=bbox,
+                        source="ocr_words"
+                    )
+                )
+
+        # Three groups:
+        # 1234 5678 9012
+
+        if index + 2 >= len(
+            candidates
+        ):
+            continue
+
+        second = candidates[
+            index + 1
+        ]
+
+        third = candidates[
+            index + 2
+        ]
 
         if not (
             len(first["digits"]) == 4
@@ -2505,20 +2932,23 @@ def detect_aadhaar_from_words(
             and
             len(third["digits"]) == 4
         ):
+
             continue
 
         if abs(
+            second["top"]
+            -
             first["top"]
-            -
-            second["top"]
         ) > 40:
+
             continue
 
         if abs(
-            second["top"]
-            -
             third["top"]
+            -
+            first["top"]
         ) > 40:
+
             continue
 
         number = (
@@ -2529,36 +2959,20 @@ def detect_aadhaar_from_words(
             third["digits"]
         )
 
-        if not verhoeff_validate(
+        if not validate_sensitive_value(
+            "AADHAAR",
             number
         ):
+
             continue
 
-        bbox = {
-            "left": min(
-                first["left"],
-                second["left"],
-                third["left"]
-            ),
-
-            "top": min(
-                first["top"],
-                second["top"],
-                third["top"]
-            ),
-
-            "right": max(
-                first["right"],
-                second["right"],
-                third["right"]
-            ),
-
-            "bottom": max(
-                first["bottom"],
-                second["bottom"],
-                third["bottom"]
-            ),
-        }
+        bbox = union_boxes(
+            [
+                first,
+                second,
+                third,
+            ]
+        )
 
         detections.append(
             make_detection(
@@ -2582,7 +2996,7 @@ def detect_card_from_words(
 
     detections = []
 
-    for i in range(
+    for index in range(
         len(words)
     ):
 
@@ -2591,17 +3005,20 @@ def detect_card_from_words(
         selected = []
 
         for j in range(
-            i,
+            index,
             min(
                 len(words),
-                i + 5
+                index + 5
             )
         ):
 
             digits = re.sub(
                 r"\D",
                 "",
-                words[j]["text"]
+                words[j].get(
+                    "text",
+                    ""
+                )
             )
 
             if not digits:
@@ -2616,6 +3033,10 @@ def detect_card_from_words(
             if not (
                 13 <= len(combined) <= 19
             ):
+
+                if len(combined) > 19:
+                    break
+
                 continue
 
             if luhn_validate(
@@ -2655,7 +3076,10 @@ def detect_ifsc_from_words(
         value = re.sub(
             r"[^A-Za-z0-9]",
             "",
-            word["text"]
+            word.get(
+                "text",
+                ""
+            )
         ).upper()
 
         if validate_sensitive_value(
@@ -2701,12 +3125,18 @@ def detect_upi_from_words(
 
     for word in words:
 
-        value = word[
-            "text"
-        ].strip()
+        value = str(
+            word.get(
+                "text",
+                ""
+            )
+        ).strip()
 
         if "@" not in value:
             continue
+
+        # IMPORTANT:
+        # validate_upi() rejects normal emails.
 
         if validate_sensitive_value(
             "UPIID",
@@ -2752,7 +3182,10 @@ def detect_pan_from_ocr_words(
     for word in words:
 
         candidate = clean_pan_candidate(
-            word["text"]
+            word.get(
+                "text",
+                ""
+            )
         )
 
         if not candidate:
@@ -2790,165 +3223,93 @@ def detect_pan_from_ocr_words(
 
 
 # ============================================================
-# LABEL BASED DETECTION
+# PAN TARGETED OCR
 # ============================================================
 
-def detect_labeled_value(
-    words,
-    label
+def detect_pan_with_targeted_ocr(
+    image
 ):
-
-    label = normalize_label(
-        label
-    )
-
-    labels = [
-        normalize_label_text(
-            item
-        )
-        for item in FIELD_LABELS.get(
-            label,
-            []
-        )
-    ]
-
-    if not labels:
-        return []
 
     detections = []
 
-    strict_credentials = {
-        "PASSWORD",
-        "APIKEY",
-        "ACCESSTOKEN",
-        "SECRETKEY",
-    }
+    if image is None:
+        return detections
 
-    for i, word in enumerate(
-        words
-    ):
+    variants = make_ocr_variants(
+        image
+    )
 
-        current = word.get(
-            "normalized",
-            ""
-        )
+    configs = [
 
-        if current not in labels:
-            continue
+        "--oem 3 --psm 6",
 
-        for j in range(
-            i + 1,
-            min(
-                len(words),
-                i + 5
-            )
-        ):
+        "--oem 3 --psm 11",
+    ]
 
-            candidate = words[j]
+    seen = set()
 
-            value = candidate.get(
-                "text",
-                ""
-            ).strip()
+    for variant_name, variant_image in variants:
 
-            if not value:
-                continue
+        for config in configs:
 
-            candidate_normalized = (
-                candidate.get(
-                    "normalized",
-                    ""
+            try:
+
+                text = pytesseract.image_to_string(
+                    variant_image,
+                    config=config,
+                    timeout=OCR_TIMEOUT
                 )
-            )
 
-            if candidate_normalized in labels:
+            except Exception:
+
                 continue
 
-            # ------------------------------------------------
-            # Same approximate line.
-            # ------------------------------------------------
+            if not text:
+                continue
 
-            vertical_distance = abs(
-                candidate["top"]
-                -
-                word["top"]
-            )
-
-            if vertical_distance > 80:
-                break
-
-            # ------------------------------------------------
-            # Reasonable horizontal distance.
-            # ------------------------------------------------
-
-            horizontal_distance = (
-                candidate["left"]
-                -
-                word["right"]
-            )
-
-            if horizontal_distance > 350:
-                break
-
-            # ------------------------------------------------
-            # Credentials require stronger evidence.
-            # ------------------------------------------------
-
-            if label in strict_credentials:
-
-                if len(value) < 8:
-                    continue
-
-                if re.fullmatch(
-                    r"[A-Za-z]+",
-                    value
-                ):
-                    continue
-
-                if not re.search(
-                    r"[0-9_\-+=/:.@]",
-                    value
-                ):
-                    continue
-
-            # ------------------------------------------------
-            # Validate.
-            # ------------------------------------------------
-
-            if not validate_sensitive_value(
-                label,
-                value
+            for token in re.findall(
+                r"[A-Za-z0-9]{8,12}",
+                text
             ):
-                continue
 
-            bbox = {
-                "left":
-                    candidate["left"],
-
-                "top":
-                    candidate["top"],
-
-                "right":
-                    candidate["right"],
-
-                "bottom":
-                    candidate["bottom"],
-            }
-
-            detections.append(
-                make_detection(
-                    label,
-                    value,
-                    bbox=bbox,
-                    source="ocr_label",
-                    coordinate_space=
-                        candidate.get(
-                            "coordinate_space"
-                        )
+                candidate = clean_pan_candidate(
+                    token
                 )
-            )
 
-            break
+                if not candidate:
+                    continue
+
+                if candidate in seen:
+                    continue
+
+                if not validate_sensitive_value(
+                    "PAN",
+                    candidate
+                ):
+                    continue
+
+                seen.add(
+                    candidate
+                )
+
+                detections.append(
+                    {
+                        "label":
+                            "PAN",
+
+                        "value":
+                            candidate,
+
+                        "source":
+                            "pan_targeted_ocr",
+
+                        "ocr_variant":
+                            variant_name,
+
+                        "ocr_config":
+                            config,
+                    }
+                )
 
     return detections
 
@@ -2978,10 +3339,6 @@ def find_pan_bbox(
     if bbox:
         return bbox
 
-    # --------------------------------------------------------
-    # OCR similarity fallback.
-    # --------------------------------------------------------
-
     target = normalize_label_text(
         pan_value
     )
@@ -3004,12 +3361,12 @@ def find_pan_bbox(
 
         matches = 0
 
-        for a, b in zip(
+        for first, second in zip(
             candidate,
             target
         ):
 
-            if a == b:
+            if first == second:
                 matches += 1
 
         score = (
@@ -3049,7 +3406,7 @@ def find_pan_bbox(
 
 
 # ============================================================
-# DEDUPLICATION
+# DETECTION OVERLAP
 # ============================================================
 
 def detections_overlap(
@@ -3068,70 +3425,45 @@ def detections_overlap(
         key in first
         for key in required
     ):
+
         return False
 
     if not all(
         key in second
         for key in required
     ):
+
         return False
 
     return (
+
         first["left"]
         <
         second["right"]
+
         and
+
         second["left"]
         <
         first["right"]
+
         and
+
         first["top"]
         <
         second["bottom"]
+
         and
+
         second["top"]
         <
         first["bottom"]
     )
 
 
-def detection_priority(
-    detection
-):
-
-    source = detection.get(
-        "source",
-        ""
-    )
-
-    # Prefer detections having coordinates.
-    has_bbox = all(
-        key in detection
-        for key in (
-            "left",
-            "top",
-            "right",
-            "bottom"
-        )
-    )
-
-    if has_bbox and (
-        "targeted"
-        in source
-        or
-        "ocr_data"
-        in source
-    ):
-        return 4
-
-    if has_bbox:
-        return 3
-
-    if "ocr" in source:
-        return 2
-
-    return 1
-
+# ============================================================
+# DEDUPLICATION
+# ============================================================
 
 def deduplicate_detections(
     detections
@@ -3141,41 +3473,53 @@ def deduplicate_detections(
 
     for detection in detections:
 
-        duplicate_index = None
+        label = LABEL_ALIASES.get(
+            str(
+                detection.get(
+                    "label",
+                    ""
+                )
+            ).upper(),
+            str(
+                detection.get(
+                    "label",
+                    ""
+                )
+            ).upper()
+        )
 
-        for index, existing in enumerate(
-            final
-        ):
+        value = detection.get(
+            "value",
+            ""
+        )
+
+        duplicate = False
+
+        for existing in final:
+
+            existing_label = existing.get(
+                "label",
+                ""
+            )
+
+            existing_value = existing.get(
+                "value",
+                ""
+            )
 
             same_label = (
-                normalize_label(
-                    detection.get(
-                        "label",
-                        ""
-                    )
-                )
+                label
                 ==
-                normalize_label(
-                    existing.get(
-                        "label",
-                        ""
-                    )
-                )
+                existing_label
             )
 
             same_value = (
                 normalize_label_text(
-                    detection.get(
-                        "value",
-                        ""
-                    )
+                    value
                 )
                 ==
                 normalize_label_text(
-                    existing.get(
-                        "value",
-                        ""
-                    )
+                    existing_value
                 )
             )
 
@@ -3194,34 +3538,27 @@ def deduplicate_detections(
                 )
             ):
 
-                duplicate_index = index
+                duplicate = True
+
+                # Prefer detection with coordinates.
+
+                if (
+                    "left" in detection
+                    and
+                    "left" not in existing
+                ):
+
+                    existing.update(
+                        detection
+                    )
+
                 break
 
-        if duplicate_index is None:
+        if not duplicate:
 
             final.append(
                 detection
             )
-
-        else:
-
-            existing = final[
-                duplicate_index
-            ]
-
-            if (
-                detection_priority(
-                    detection
-                )
-                >
-                detection_priority(
-                    existing
-                )
-            ):
-
-                final[
-                    duplicate_index
-                ] = detection
 
     return final
 
@@ -3239,7 +3576,7 @@ def detect_sensitive_fields_from_page(
     detections = []
 
     # ========================================================
-    # PAN TARGETED OCR
+    # 1. PAN TARGETED OCR
     # ========================================================
 
     if image is not None:
@@ -3250,51 +3587,27 @@ def detect_sensitive_fields_from_page(
             )
         )
 
-        # ----------------------------------------------------
-        # Try to attach PDF/image bbox from normal words.
-        # ----------------------------------------------------
-
         for detection in pan_detections:
 
-            if not all(
-                key in detection
-                for key in (
-                    "left",
-                    "top",
-                    "right",
-                    "bottom"
+            bbox = find_pan_bbox(
+                words,
+                detection[
+                    "value"
+                ]
+            )
+
+            if bbox:
+
+                detection.update(
+                    bbox
                 )
-            ):
-
-                bbox = find_pan_bbox(
-                    words,
-                    detection[
-                        "value"
-                    ]
-                )
-
-                if bbox:
-
-                    detection.update(
-                        bbox
-                    )
-
-                    # The words may already be in
-                    # PDF coordinate space.
-                    if words and words[0].get(
-                        "coordinate_space"
-                    ) == "pdf":
-
-                        detection[
-                            "coordinate_space"
-                        ] = "pdf"
 
             detections.append(
                 detection
             )
 
     # ========================================================
-    # FULL TEXT
+    # 2. FULL TEXT
     # ========================================================
 
     full_text_detections = (
@@ -3303,9 +3616,7 @@ def detect_sensitive_fields_from_page(
         )
     )
 
-    for detection in (
-        full_text_detections
-    ):
+    for detection in full_text_detections:
 
         detection = (
             attach_bbox_to_detection(
@@ -3314,36 +3625,12 @@ def detect_sensitive_fields_from_page(
             )
         )
 
-        if all(
-            key in detection
-            for key in (
-                "left",
-                "top",
-                "right",
-                "bottom"
-            )
-        ):
-
-            if words:
-
-                coordinate_space = (
-                    words[0].get(
-                        "coordinate_space"
-                    )
-                )
-
-                if coordinate_space:
-
-                    detection[
-                        "coordinate_space"
-                    ] = coordinate_space
-
         detections.append(
             detection
         )
 
     # ========================================================
-    # WORD DETECTION
+    # 3. WORD DETECTION
     # ========================================================
 
     detections.extend(
@@ -3377,7 +3664,7 @@ def detect_sensitive_fields_from_page(
     )
 
     # ========================================================
-    # LABEL DETECTION
+    # 4. LABEL DETECTION
     # ========================================================
 
     for label in FIELD_LABELS:
@@ -3390,18 +3677,16 @@ def detect_sensitive_fields_from_page(
         )
 
     # ========================================================
-    # FINAL STRICT VALIDATION
+    # 5. STRICT FINAL VALIDATION
     # ========================================================
 
     valid = []
 
     for detection in detections:
 
-        label = normalize_label(
-            detection.get(
-                "label",
-                ""
-            )
+        label = detection.get(
+            "label",
+            ""
         )
 
         value = detection.get(
@@ -3409,14 +3694,23 @@ def detect_sensitive_fields_from_page(
             ""
         )
 
-        # Only approved sensitive labels.
-        if label not in (
-            ALLOWED_SENSITIVE_LABELS
-        ):
+        label = LABEL_ALIASES.get(
+            str(label).upper(),
+            str(label).upper()
+        )
+
+        # ----------------------------------------------------
+        # Unknown labels are NEVER allowed.
+        # ----------------------------------------------------
+
+        if label not in ALLOWED_SENSITIVE_LABELS:
 
             continue
 
-        # Validate value.
+        # ----------------------------------------------------
+        # Strict validation.
+        # ----------------------------------------------------
+
         if not validate_sensitive_value(
             label,
             value
@@ -3432,17 +3726,13 @@ def detect_sensitive_fields_from_page(
             detection
         )
 
-    # ========================================================
-    # DEDUPLICATE
-    # ========================================================
-
     return deduplicate_detections(
         valid
     )
 
 
 # ============================================================
-# DOCUMENT LEVEL DETECTION
+# DOCUMENT-LEVEL DETECTION
 # ============================================================
 
 def detect_sensitive_fields_from_ocr(
@@ -3516,21 +3806,28 @@ def extract_document_data(
     file_path
 ):
 
+    if not os.path.exists(
+        file_path
+    ):
+
+        raise FileNotFoundError(
+            f"File not found: {file_path}"
+        )
+
     extension = os.path.splitext(
         file_path
     )[1].lower()
 
-    if extension not in (
-        SUPPORTED_EXTENSIONS
-    ):
+    if extension not in SUPPORTED_EXTENSIONS:
 
         raise ValueError(
             "Unsupported file type: "
-            + extension
+            +
+            extension
         )
 
     # ========================================================
-    # IMAGE FILE
+    # IMAGE
     # ========================================================
 
     if extension in {
@@ -3554,37 +3851,35 @@ def extract_document_data(
         full_text = (
             extract_text_from_image(
                 ocr_image,
-                config="--oem 3 --psm 6"
+                OCR_CONFIG
             )
         )
 
-        data = get_image_ocr_data(
+        raw_words = get_image_ocr_data(
             ocr_image,
-            config="--oem 3 --psm 6"
+            OCR_CONFIG
         )
 
         words = normalize_ocr_words(
-            data
+            raw_words
         )
 
-        # ----------------------------------------------------
-        # Image coordinates are kept as image coordinates.
-        # ----------------------------------------------------
-
-        for word in words:
-
-            word[
-                "coordinate_space"
-            ] = "image"
-
         return {
+
             "type":
                 "image",
 
+            "path":
+                file_path,
+
             "pages": [
+
                 {
                     "page_number":
                         1,
+
+                    "type":
+                        "image",
 
                     "image":
                         image,
@@ -3606,9 +3901,6 @@ def extract_document_data(
 
                     "height":
                         image.height,
-
-                    "coordinate_space":
-                        "image",
                 }
             ],
 
@@ -3636,19 +3928,10 @@ def extract_document_data(
             page_index + 1
         )
 
-        # ----------------------------------------------------
-        # Native PDF text
-        # ----------------------------------------------------
-
-        native_text = normalize_text(
-            page.get_text(
-                "text"
-            )
-        )
-
-        # ----------------------------------------------------
-        # Embedded image
-        # ----------------------------------------------------
+        # ====================================================
+        # FIRST:
+        # Try embedded scanned image.
+        # ====================================================
 
         image_info = (
             extract_largest_pdf_image(
@@ -3671,32 +3954,35 @@ def extract_document_data(
             full_text = (
                 extract_text_from_image(
                     ocr_image,
-                    config="--oem 3 --psm 6"
+                    OCR_CONFIG
                 )
             )
 
-            data = get_image_ocr_data(
+            raw_words = get_image_ocr_data(
                 ocr_image,
-                config="--oem 3 --psm 6"
+                OCR_CONFIG
             )
 
-            image_words = normalize_ocr_words(
-                data
+            words = normalize_ocr_words(
+                raw_words
             )
 
-            pdf_words = (
+            words = (
                 convert_image_words_to_pdf(
-                    image_words,
-                    image_info["rect"],
-                    image_info["width"],
-                    image_info["height"]
-                )
-            )
+                    words,
 
-            page_text = (
-                full_text
-                if full_text
-                else native_text
+                    image_info[
+                        "rect"
+                    ],
+
+                    image_info[
+                        "width"
+                    ],
+
+                    image_info[
+                        "height"
+                    ]
+                )
             )
 
             pages.append(
@@ -3714,40 +4000,46 @@ def extract_document_data(
                         ocr_image,
 
                     "words":
-                        pdf_words,
-
-                    "image_words":
-                        image_words,
+                        words,
 
                     "full_text":
-                        page_text,
+                        full_text,
 
                     "text":
-                        page_text,
+                        full_text,
 
                     "pdf_rect":
-                        image_info["rect"],
+                        page.rect,
 
-                    "image_width":
-                        image_info["width"],
+                    "image_rect":
+                        image_info[
+                            "rect"
+                        ],
 
-                    "image_height":
-                        image_info["height"],
+                    "width":
+                        image.width,
 
-                    "coordinate_space":
-                        "pdf",
+                    "height":
+                        image.height,
                 }
             )
 
             all_text.append(
-                page_text
+                full_text
             )
 
             continue
 
-        # ----------------------------------------------------
-        # Native PDF text
-        # ----------------------------------------------------
+        # ====================================================
+        # SECOND:
+        # Native PDF text.
+        # ====================================================
+
+        native_text = normalize_text(
+            page.get_text(
+                "text"
+            )
+        )
 
         if native_text:
 
@@ -3755,10 +4047,8 @@ def extract_document_data(
 
             try:
 
-                raw_words = (
-                    page.get_text(
-                        "words"
-                    )
+                raw_words = page.get_text(
+                    "words"
                 )
 
                 for item in raw_words:
@@ -3819,11 +4109,8 @@ def extract_document_data(
                             "pdf_bottom":
                                 y1,
 
-                            "confidence":
+                            "conf":
                                 100,
-
-                            "coordinate_space":
-                                "pdf",
                         }
                     )
 
@@ -3856,9 +4143,6 @@ def extract_document_data(
 
                     "pdf_rect":
                         page.rect,
-
-                    "coordinate_space":
-                        "pdf",
                 }
             )
 
@@ -3868,9 +4152,10 @@ def extract_document_data(
 
             continue
 
-        # ----------------------------------------------------
-        # Render PDF page when no text/image is available.
-        # ----------------------------------------------------
+        # ====================================================
+        # THIRD:
+        # Render PDF page and OCR it.
+        # ====================================================
 
         matrix = fitz.Matrix(
             PDF_OCR_SCALE,
@@ -3884,10 +4169,10 @@ def extract_document_data(
 
         image = Image.frombytes(
             "RGB",
-            [
+            (
                 pix.width,
                 pix.height
-            ],
+            ),
             pix.samples
         )
 
@@ -3900,27 +4185,58 @@ def extract_document_data(
         full_text = (
             extract_text_from_image(
                 ocr_image,
-                config="--oem 3 --psm 6"
+                OCR_CONFIG
             )
         )
 
-        data = get_image_ocr_data(
+        raw_words = get_image_ocr_data(
             ocr_image,
-            config="--oem 3 --psm 6"
+            OCR_CONFIG
         )
 
         image_words = normalize_ocr_words(
-            data
+            raw_words
         )
 
-        pdf_words = (
-            convert_image_words_to_pdf(
-                image_words,
-                page.rect,
-                image.width,
-                image.height
+        page_words = []
+
+        for word in image_words:
+
+            page_words.append(
+                {
+                    **word,
+
+                    "left":
+                        word["left"]
+                        /
+                        PDF_OCR_SCALE,
+
+                    "top":
+                        word["top"]
+                        /
+                        PDF_OCR_SCALE,
+
+                    "right":
+                        word["right"]
+                        /
+                        PDF_OCR_SCALE,
+
+                    "bottom":
+                        word["bottom"]
+                        /
+                        PDF_OCR_SCALE,
+
+                    "width":
+                        word["width"]
+                        /
+                        PDF_OCR_SCALE,
+
+                    "height":
+                        word["height"]
+                        /
+                        PDF_OCR_SCALE,
+                }
             )
-        )
 
         pages.append(
             {
@@ -3928,7 +4244,7 @@ def extract_document_data(
                     page_number,
 
                 "type":
-                    "image",
+                    "ocr",
 
                 "image":
                     image,
@@ -3937,10 +4253,7 @@ def extract_document_data(
                     ocr_image,
 
                 "words":
-                    pdf_words,
-
-                "image_words":
-                    image_words,
+                    page_words,
 
                 "full_text":
                     full_text,
@@ -3948,17 +4261,23 @@ def extract_document_data(
                 "text":
                     full_text,
 
+                "scale":
+                    PDF_OCR_SCALE,
+
+                "width":
+                    pix.width,
+
+                "height":
+                    pix.height,
+
+                "pdf_width":
+                    page.rect.width,
+
+                "pdf_height":
+                    page.rect.height,
+
                 "pdf_rect":
                     page.rect,
-
-                "image_width":
-                    image.width,
-
-                "image_height":
-                    image.height,
-
-                "coordinate_space":
-                    "pdf",
             }
         )
 
@@ -3969,8 +4288,12 @@ def extract_document_data(
     document.close()
 
     return {
+
         "type":
             "pdf",
+
+        "path":
+            file_path,
 
         "pages":
             pages,

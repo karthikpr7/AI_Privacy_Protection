@@ -1,183 +1,1253 @@
 import os
 import re
-import io
 
+import cv2
 import fitz
 import numpy as np
-import cv2
 
 from PIL import Image, ImageDraw, ImageFont
 
-
-# =========================================================
-# FONT
-# =========================================================
-
-def get_font(size):
-    """
-    Get a font for drawing masked values.
-    """
-
-    possible_fonts = [
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-    ]
-
-    for font_path in possible_fonts:
-
-        if os.path.exists(font_path):
-
-            try:
-                return ImageFont.truetype(
-                    font_path,
-                    max(8, int(size))
-                )
-            except Exception:
-                pass
-
-    return ImageFont.load_default()
+from modules.masking import mask_value
 
 
-# =========================================================
-# NORMALIZE OCR TEXT
-# =========================================================
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-def normalize_ocr_text(text):
+PDF_RENDER_SCALE = 1.5
+INPAINT_RADIUS = 3
 
-    if not text:
-        return ""
+MIN_FONT_SIZE = 5
+MAX_FONT_SIZE = 100
 
-    text = str(text)
 
-    text = text.replace(
-        "\x00",
-        " "
+# ============================================================
+# ALLOWED SENSITIVE LABELS
+# ============================================================
+
+ALLOWED_LABELS = {
+    "PAN",
+    "AADHAAR",
+    "PASSPORTNUM",
+    "DRIVERLICENSENUM",
+    "VOTERID",
+    "VOTERIDNUM",
+    "BANK_ACCOUNT",
+    "BANKACCOUNT",
+    "IFSC",
+    "CREDITCARDNUMBER",
+    "DEBITCARDNUMBER",
+    "UPIID",
+    "UPI_ID",
+    "PASSWORD",
+    "APIKEY",
+    "API_KEY",
+    "ACCESSTOKEN",
+    "ACCESS_TOKEN",
+    "SECRETKEY",
+    "SECRET_KEY",
+}
+
+
+# ============================================================
+# LABEL ALIASES
+# ============================================================
+
+LABEL_ALIASES = {
+    "BANKACCOUNT": "BANK_ACCOUNT",
+    "VOTERIDNUM": "VOTERID",
+    "DEBITCARDNUMBER": "CREDITCARDNUMBER",
+    "UPI_ID": "UPIID",
+    "API_KEY": "APIKEY",
+    "ACCESS_TOKEN": "ACCESSTOKEN",
+    "SECRET_KEY": "SECRETKEY",
+}
+
+
+# ============================================================
+# LABEL NORMALIZATION
+# ============================================================
+
+def normalize_label(label):
+    label = str(label or "").strip().upper()
+
+    return LABEL_ALIASES.get(
+        label,
+        label
     )
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
+
+# ============================================================
+# TEXT NORMALIZATION
+# ============================================================
+
+def normalize_compare(value):
+    return re.sub(
+        r"[^A-Z0-9@._-]",
+        "",
+        str(value or "").upper()
     )
 
-    return text.strip()
 
-
-# =========================================================
-# OCR DATA
-# =========================================================
-
-def get_ocr_data(image):
-    """
-    Run OCR on an image and return word coordinates.
-    """
-
-    import pytesseract
-
-    data = pytesseract.image_to_data(
-        image,
-        output_type=pytesseract.Output.DICT,
-        config="--psm 6"
+def normalize_digits(value):
+    return re.sub(
+        r"\D",
+        "",
+        str(value or "")
     )
 
-    words = []
 
-    count = len(
-        data.get(
-            "text",
-            []
+# ============================================================
+# MASKING
+# ============================================================
+
+def get_masked_value(
+    value,
+    label
+):
+    return mask_value(
+        value,
+        label
+    )
+
+
+# ============================================================
+# CLEAN DETECTIONS
+# ============================================================
+
+def clean_detections(detections):
+
+    if not isinstance(
+        detections,
+        list
+    ):
+        return []
+
+    result = []
+    seen = set()
+
+    for detection in detections:
+
+        if not isinstance(
+            detection,
+            dict
+        ):
+            continue
+
+        label = normalize_label(
+            detection.get("label")
         )
-    )
 
-    for i in range(count):
+        if label not in ALLOWED_LABELS:
+            continue
+
+        value = str(
+            detection.get(
+                "value",
+                ""
+            )
+        ).strip()
+
+        if not value:
+            continue
+
+        try:
+
+            left = float(
+                detection["left"]
+            )
+
+            top = float(
+                detection["top"]
+            )
+
+            right = float(
+                detection["right"]
+            )
+
+            bottom = float(
+                detection["bottom"]
+            )
+
+        except Exception:
+
+            continue
+
+        if right <= left:
+            continue
+
+        if bottom <= top:
+            continue
+
+        try:
+
+            page_number = int(
+                detection.get(
+                    "page_number",
+                    1
+                )
+            )
+
+        except Exception:
+
+            page_number = 1
+
+        key = (
+            label,
+            value.upper(),
+            page_number,
+            round(left, 1),
+            round(top, 1),
+            round(right, 1),
+            round(bottom, 1)
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        item = dict(
+            detection
+        )
+
+        item["label"] = label
+        item["value"] = value
+        item["page_number"] = page_number
+
+        result.append(
+            item
+        )
+
+    return result
+
+
+# ============================================================
+# PAGE DETECTIONS
+# ============================================================
+
+def get_page_detections(
+    detections,
+    page_number
+):
+
+    result = []
+
+    for detection in detections:
+
+        try:
+
+            detection_page = int(
+                detection.get(
+                    "page_number",
+                    1
+                )
+            )
+
+        except Exception:
+
+            detection_page = 1
+
+        if detection_page == page_number:
+
+            result.append(
+                detection
+            )
+
+    return result
+
+
+# ============================================================
+# PDF PAGE TYPE
+# ============================================================
+
+def is_native_text_page(
+    page
+):
+
+    try:
+
+        words = page.get_text(
+            "words"
+        )
+
+    except Exception:
+
+        return False
+
+    meaningful_words = 0
+
+    for word in words:
+
+        if len(word) < 5:
+            continue
 
         text = str(
-            data["text"][i]
+            word[4]
+        ).strip()
+
+        if text:
+            meaningful_words += 1
+
+    return meaningful_words >= 2
+
+
+# ============================================================
+# GET PDF WORDS
+# ============================================================
+
+def get_pdf_words(
+    page
+):
+
+    try:
+
+        words = page.get_text(
+            "words"
+        )
+
+    except Exception:
+
+        return []
+
+    result = []
+
+    for word in words:
+
+        if len(word) < 5:
+            continue
+
+        text = str(
+            word[4]
         ).strip()
 
         if not text:
             continue
 
-        try:
-            confidence = float(
-                data["conf"][i]
-            )
-        except Exception:
-            confidence = -1
-
-        left = int(
-            data["left"][i]
-        )
-
-        top = int(
-            data["top"][i]
-        )
-
-        width = int(
-            data["width"][i]
-        )
-
-        height = int(
-            data["height"][i]
-        )
-
-        words.append({
+        result.append({
+            "x0": float(word[0]),
+            "y0": float(word[1]),
+            "x1": float(word[2]),
+            "y1": float(word[3]),
             "text": text,
-            "left": left,
-            "top": top,
-            "width": width,
-            "height": height,
-            "right": left + width,
-            "bottom": top + height,
-            "conf": confidence,
+            "block": int(word[5]),
+            "line": int(word[6]),
+            "word": int(word[7])
         })
 
-    return words
+    return result
 
 
-# =========================================================
-# DETECTION RECTANGLE
-# =========================================================
+# ============================================================
+# GET PDF SPANS
+# ============================================================
 
-def get_detection_rect(detection):
-    """
-    Get a safe rectangle from a detection.
-    """
+def get_pdf_spans(
+    page
+):
 
     try:
 
-        left = float(
-            detection["left"]
+        data = page.get_text(
+            "dict"
         )
 
-        top = float(
-            detection["top"]
-        )
+    except Exception:
 
-        right = float(
-            detection["right"]
-        )
+        return []
 
-        bottom = float(
-            detection["bottom"]
-        )
+    result = []
 
-    except (
-        KeyError,
-        TypeError,
-        ValueError
+    for block in data.get(
+        "blocks",
+        []
     ):
 
+        if block.get(
+            "type"
+        ) != 0:
+            continue
+
+        for line in block.get(
+            "lines",
+            []
+        ):
+
+            for span in line.get(
+                "spans",
+                []
+            ):
+
+                text = str(
+                    span.get(
+                        "text",
+                        ""
+                    )
+                ).strip()
+
+                bbox = span.get(
+                    "bbox"
+                )
+
+                if not text or not bbox:
+                    continue
+
+                result.append({
+                    "text": text,
+
+                    "bbox": tuple(
+                        float(x)
+                        for x in bbox
+                    ),
+
+                    "font": span.get(
+                        "font",
+                        ""
+                    ),
+
+                    "size": float(
+                        span.get(
+                            "size",
+                            10
+                        )
+                    ),
+
+                    "color": int(
+                        span.get(
+                            "color",
+                            0
+                        )
+                    ),
+
+                    "flags": int(
+                        span.get(
+                            "flags",
+                            0
+                        )
+                    )
+                })
+
+    return result
+
+
+# ============================================================
+# FIND NATIVE PDF BBOX
+# ============================================================
+
+def find_native_bbox(
+    page,
+    detection
+):
+
+    target = normalize_compare(
+        detection.get(
+            "value",
+            ""
+        )
+    )
+
+    if not target:
         return None
 
-    if right <= left:
+    words = get_pdf_words(
+        page
+    )
+
+    # --------------------------------------------------------
+    # Exact single word
+    # --------------------------------------------------------
+
+    for word in words:
+
+        if normalize_compare(
+            word["text"]
+        ) == target:
+
+            return (
+                word["x0"],
+                word["y0"],
+                word["x1"],
+                word["y1"]
+            )
+
+    # --------------------------------------------------------
+    # Numeric comparison
+    # --------------------------------------------------------
+
+    target_digits = normalize_digits(
+        target
+    )
+
+    if target_digits:
+
+        for word in words:
+
+            word_digits = normalize_digits(
+                word["text"]
+            )
+
+            if (
+                word_digits
+                and word_digits
+                == target_digits
+            ):
+
+                return (
+                    word["x0"],
+                    word["y0"],
+                    word["x1"],
+                    word["y1"]
+                )
+
+    # --------------------------------------------------------
+    # Consecutive words
+    # --------------------------------------------------------
+
+    for start in range(
+        len(words)
+    ):
+
+        combined = ""
+
+        bbox = None
+
+        for end in range(
+            start,
+            min(
+                len(words),
+                start + 8
+            )
+        ):
+
+            current = words[
+                end
+            ]
+
+            if end > start:
+
+                previous = words[
+                    end - 1
+                ]
+
+                if (
+                    current["block"]
+                    != previous["block"]
+                    or
+                    current["line"]
+                    != previous["line"]
+                ):
+
+                    break
+
+            combined += normalize_compare(
+                current["text"]
+            )
+
+            if bbox is None:
+
+                bbox = [
+                    current["x0"],
+                    current["y0"],
+                    current["x1"],
+                    current["y1"]
+                ]
+
+            else:
+
+                bbox[0] = min(
+                    bbox[0],
+                    current["x0"]
+                )
+
+                bbox[1] = min(
+                    bbox[1],
+                    current["y0"]
+                )
+
+                bbox[2] = max(
+                    bbox[2],
+                    current["x1"]
+                )
+
+                bbox[3] = max(
+                    bbox[3],
+                    current["y1"]
+                )
+
+            if combined == target:
+
+                return tuple(
+                    bbox
+                )
+
+            if len(combined) > len(
+                target
+            ):
+
+                break
+
+    return None
+
+
+# ============================================================
+# FIND BEST SPAN
+# ============================================================
+
+def find_best_span(
+    page,
+    bbox
+):
+
+    spans = get_pdf_spans(
+        page
+    )
+
+    if not spans:
         return None
 
-    if bottom <= top:
+    if bbox is None:
+        return spans[0]
+
+    x0, y0, x1, y1 = bbox
+
+    center_x = (
+        x0 + x1
+    ) / 2
+
+    center_y = (
+        y0 + y1
+    ) / 2
+
+    best = None
+    best_score = float(
+        "inf"
+    )
+
+    for span in spans:
+
+        sx0, sy0, sx1, sy1 = (
+            span["bbox"]
+        )
+
+        span_center_x = (
+            sx0 + sx1
+        ) / 2
+
+        span_center_y = (
+            sy0 + sy1
+        ) / 2
+
+        score = (
+            abs(
+                center_x
+                - span_center_x
+            )
+            +
+            abs(
+                center_y
+                - span_center_y
+            )
+        )
+
+        if score < best_score:
+
+            best_score = score
+            best = span
+
+    return best
+
+
+# ============================================================
+# PDF COLOR CONVERSION
+# ============================================================
+
+def pdf_color_to_rgb(
+    color
+):
+
+    color = int(
+        color or 0
+    )
+
+    return (
+        (color >> 16) & 255,
+        (color >> 8) & 255,
+        color & 255
+    )
+
+
+# ============================================================
+# EXTRACT ORIGINAL EMBEDDED FONT
+# ============================================================
+
+def extract_embedded_font(
+    document,
+    page,
+    span
+):
+
+    original_font = str(
+        span.get(
+            "font",
+            ""
+        )
+    ).strip().lower()
+
+    if not original_font:
         return None
+
+    try:
+
+        fonts = page.get_fonts(
+            full=True
+        )
+
+    except Exception:
+
+        return None
+
+    for font in fonts:
+
+        if len(font) < 4:
+            continue
+
+        xref = font[0]
+
+        basefont = str(
+            font[3] or ""
+        )
+
+        if (
+            original_font not in
+            basefont.lower()
+            and
+            basefont.lower() not in
+            original_font
+        ):
+
+            continue
+
+        try:
+
+            extracted = (
+                document.extract_font(
+                    xref
+                )
+            )
+
+        except Exception:
+
+            continue
+
+        if not extracted:
+            continue
+
+        if len(extracted) < 4:
+            continue
+
+        # PyMuPDF:
+        #
+        # name
+        # extension
+        # type
+        # binary content
+
+        name = extracted[0]
+        extension = extracted[1]
+        content = extracted[3]
+
+        if not content:
+            continue
+
+        if str(
+            extension
+        ).lower() not in {
+            "ttf",
+            "otf"
+        }:
+
+            continue
+
+        return {
+            "name": str(name),
+            "extension": str(
+                extension
+            ),
+            "content": content
+        }
+
+    return None
+
+
+# ============================================================
+# INSERT ORIGINAL FONT
+# ============================================================
+
+def insert_original_font(
+    page,
+    font_info
+):
+
+    if not font_info:
+        return None
+
+    safe_name = re.sub(
+        r"[^A-Za-z0-9_]",
+        "_",
+        font_info["name"]
+    )
+
+    safe_name = (
+        "privacy_"
+        + safe_name[:40]
+    )
+
+    try:
+
+        page.insert_font(
+            fontname=safe_name,
+            fontbuffer=font_info[
+                "content"
+            ]
+        )
+
+        return safe_name
+
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# FONT SIZE CALCULATION
+# ============================================================
+
+def calculate_font_size(
+    masked_value,
+    original_size,
+    original_width,
+    font_name
+):
+
+    size = max(
+        MIN_FONT_SIZE,
+        min(
+            MAX_FONT_SIZE,
+            float(original_size)
+        )
+    )
+
+    try:
+
+        font = fitz.Font(
+            fontname=font_name
+        )
+
+    except Exception:
+
+        return size
+
+    while size > MIN_FONT_SIZE:
+
+        try:
+
+            text_width = (
+                font.text_length(
+                    masked_value,
+                    fontsize=size
+                )
+            )
+
+        except Exception:
+
+            break
+
+        if text_width <= original_width:
+            break
+
+        size -= 0.25
+
+    return max(
+        MIN_FONT_SIZE,
+        size
+    )
+
+
+# ============================================================
+# MASK NATIVE PDF TEXT
+# ============================================================
+
+def mask_native_pdf_text(
+    page,
+    document,
+    detection
+):
+
+    label = normalize_label(
+        detection.get(
+            "label"
+        )
+    )
+
+    value = str(
+        detection.get(
+            "value",
+            ""
+        )
+    ).strip()
+
+    masked_value = get_masked_value(
+        value,
+        label
+    )
+
+    if not masked_value:
+        return False
+
+    # --------------------------------------------------------
+    # Find actual text position.
+    # --------------------------------------------------------
+
+    bbox = find_native_bbox(
+        page,
+        detection
+    )
+
+    if bbox is None:
+
+        print(
+            "Could not locate native text:",
+            label,
+            value
+        )
+
+        return False
+
+    # --------------------------------------------------------
+    # Get ORIGINAL font/color/size BEFORE redaction.
+    # --------------------------------------------------------
+
+    span = find_best_span(
+        page,
+        bbox
+    )
+
+    if span is None:
+
+        print(
+            "Could not locate original font:",
+            value
+        )
+
+        return False
+
+    original_font = span.get(
+        "font",
+        ""
+    )
+
+    original_size = float(
+        span.get(
+            "size",
+            10
+        )
+    )
+
+    original_color = (
+        pdf_color_to_rgb(
+            span.get(
+                "color",
+                0
+            )
+        )
+    )
+
+    original_flags = int(
+        span.get(
+            "flags",
+            0
+        )
+    )
+
+    # --------------------------------------------------------
+    # Extract embedded original font.
+    # --------------------------------------------------------
+
+    font_info = (
+        extract_embedded_font(
+            document,
+            page,
+            span
+        )
+    )
+
+    font_name = (
+        insert_original_font(
+            page,
+            font_info
+        )
+    )
+
+    # Fallback only if the PDF font cannot be extracted.
+    if font_name is None:
+
+        if original_flags & 16:
+
+            font_name = "hebo"
+
+        else:
+
+            font_name = "helv"
+
+    # --------------------------------------------------------
+    # Calculate replacement size.
+    # --------------------------------------------------------
+
+    original_width = max(
+        1,
+        bbox[2] - bbox[0]
+    )
+
+    font_size = (
+        calculate_font_size(
+            masked_value,
+            original_size,
+            original_width,
+            font_name
+        )
+    )
+
+    # --------------------------------------------------------
+    # Remove original sensitive text.
+    #
+    # Only this small rectangle is affected.
+    # --------------------------------------------------------
+
+    redact_rect = fitz.Rect(
+        bbox[0] - 1,
+        bbox[1] - 0.5,
+        bbox[2] + 1,
+        bbox[3] + 0.5
+    )
+
+    page.add_redact_annot(
+        redact_rect,
+        fill=(
+            1,
+            1,
+            1
+        )
+    )
+
+    page.apply_redactions(
+        images=fitz.PDF_REDACT_IMAGE_NONE,
+        graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+        text=fitz.PDF_REDACT_TEXT_REMOVE
+    )
+
+    # --------------------------------------------------------
+    # Original color.
+    # --------------------------------------------------------
+
+    color = (
+        original_color[0] / 255.0,
+        original_color[1] / 255.0,
+        original_color[2] / 255.0
+    )
+
+    # --------------------------------------------------------
+    # Put masked text at original position.
+    # --------------------------------------------------------
+
+    text_rect = fitz.Rect(
+        bbox[0],
+        bbox[1],
+        bbox[2],
+        bbox[3] + 1
+    )
+
+    result = page.insert_textbox(
+        text_rect,
+        masked_value,
+        fontname=font_name,
+        fontsize=font_size,
+        color=color,
+        align=fitz.TEXT_ALIGN_LEFT,
+        overlay=True
+    )
+
+    # --------------------------------------------------------
+    # Last fallback if the replacement does not fit.
+    # --------------------------------------------------------
+
+    if result < 0:
+
+        fallback_size = max(
+            MIN_FONT_SIZE,
+            font_size - 1
+        )
+
+        page.insert_text(
+            fitz.Point(
+                bbox[0],
+                bbox[3]
+            ),
+            masked_value,
+            fontname=font_name,
+            fontsize=fallback_size,
+            color=color,
+            overlay=True
+        )
+
+    print(
+        f"NATIVE MASKED: "
+        f"{label} | "
+        f"{value} -> {masked_value}"
+    )
+
+    print(
+        f"Original font: {original_font}"
+    )
+
+    print(
+        f"Original size: {original_size}"
+    )
+
+    print(
+        f"Original color: {original_color}"
+    )
+
+    return True
+
+
+# ============================================================
+# RENDER SCANNED PDF PAGE
+# ============================================================
+
+def render_pdf_page(
+    page
+):
+
+    matrix = fitz.Matrix(
+        PDF_RENDER_SCALE,
+        PDF_RENDER_SCALE
+    )
+
+    pix = page.get_pixmap(
+        matrix=matrix,
+        alpha=False
+    )
+
+    raw = np.frombuffer(
+        pix.samples,
+        dtype=np.uint8
+    )
+
+    image = raw.reshape(
+        pix.height,
+        pix.width,
+        pix.n
+    )
+
+    if pix.n == 4:
+
+        image = cv2.cvtColor(
+            image,
+            cv2.COLOR_RGBA2BGR
+        )
+
+    else:
+
+        image = cv2.cvtColor(
+            image,
+            cv2.COLOR_RGB2BGR
+        )
+
+    return image
+
+
+# ============================================================
+# IMAGE BBOX
+# ============================================================
+
+def get_image_bbox(
+    detection,
+    image
+):
+
+    height, width = (
+        image.shape[:2]
+    )
+
+    try:
+
+        left = int(
+            round(
+                float(
+                    detection["left"]
+                )
+            )
+        )
+
+        top = int(
+            round(
+                float(
+                    detection["top"]
+                )
+            )
+        )
+
+        right = int(
+            round(
+                float(
+                    detection["right"]
+                )
+            )
+        )
+
+        bottom = int(
+            round(
+                float(
+                    detection["bottom"]
+                )
+            )
+        )
+
+    except Exception:
+
+        return None
+
+    left = max(
+        0,
+        min(
+            width - 1,
+            left
+        )
+    )
+
+    top = max(
+        0,
+        min(
+            height - 1,
+            top
+        )
+    )
+
+    right = max(
+        left + 1,
+        min(
+            width,
+            right
+        )
+    )
+
+    bottom = max(
+        top + 1,
+        min(
+            height,
+            bottom
+        )
+    )
 
     return (
         left,
@@ -187,1522 +1257,781 @@ def get_detection_rect(detection):
     )
 
 
-# =========================================================
-# FIND EXACT VALUE BBOX
-# =========================================================
+# ============================================================
+# IMAGE TEXT COLOR
+# ============================================================
 
-def find_exact_value_bbox(
-    words,
-    value
-):
-    """
-    Find an exact OCR value in a list of words.
-    """
-
-    if not words or not value:
-        return None
-
-    target = re.sub(
-        r"\s+",
-        "",
-        str(value).lower()
-    )
-
-    for word in words:
-
-        text = str(
-            word.get(
-                "text",
-                ""
-            )
-        )
-
-        normalized = re.sub(
-            r"\s+",
-            "",
-            text.lower()
-        )
-
-        if normalized == target:
-
-            return (
-                word["left"],
-                word["top"],
-                word["right"],
-                word["bottom"]
-            )
-
-    return None
-
-
-# =========================================================
-# FIND PARTIAL VALUE BBOX
-# =========================================================
-
-def find_partial_value_bbox(
-    words,
-    value
-):
-    """
-    Find a value spread across multiple OCR words.
-
-    Example:
-
-        8851
-        3371
-        5419
-    """
-
-    if not words or not value:
-        return None
-
-    target = re.sub(
-        r"\D",
-        "",
-        str(value)
-    )
-
-    if not target:
-        return None
-
-    normalized_words = []
-
-    for word in words:
-
-        text = str(
-            word.get(
-                "text",
-                ""
-            )
-        )
-
-        digits = re.sub(
-            r"\D",
-            "",
-            text
-        )
-
-        if digits:
-
-            normalized_words.append({
-                **word,
-                "digits": digits,
-            })
-
-    for i in range(
-        len(normalized_words)
-    ):
-
-        combined = ""
-        selected = []
-
-        for j in range(
-            i,
-            min(
-                i + 8,
-                len(normalized_words)
-            )
-        ):
-
-            current = normalized_words[
-                j
-            ]
-
-            if selected:
-
-                previous = selected[-1]
-
-                previous_center = (
-                    previous["top"]
-                    + previous["bottom"]
-                ) / 2
-
-                current_center = (
-                    current["top"]
-                    + current["bottom"]
-                ) / 2
-
-                if abs(
-                    previous_center
-                    - current_center
-                ) > 30:
-
-                    break
-
-                gap = (
-                    current["left"]
-                    - previous["right"]
-                )
-
-                if gap > 150:
-                    break
-
-            combined += current[
-                "digits"
-            ]
-
-            selected.append(
-                current
-            )
-
-            if combined == target:
-
-                return (
-                    min(
-                        item["left"]
-                        for item in selected
-                    ),
-                    min(
-                        item["top"]
-                        for item in selected
-                    ),
-                    max(
-                        item["right"]
-                        for item in selected
-                    ),
-                    max(
-                        item["bottom"]
-                        for item in selected
-                    )
-                )
-
-            if not target.startswith(
-                combined
-            ):
-                break
-
-    return None
-
-
-# =========================================================
-# SAFE VALUE BBOX
-# =========================================================
-
-def get_safe_value_bbox(
-    words,
-    detection
-):
-    """
-    Prefer detection coordinates supplied by the OCR
-    detector. Otherwise search OCR words.
-    """
-
-    rect = get_detection_rect(
-        detection
-    )
-
-    if rect is not None:
-        return rect
-
-    value = detection.get(
-        "value",
-        ""
-    )
-
-    rect = find_exact_value_bbox(
-        words,
-        value
-    )
-
-    if rect is not None:
-        return rect
-
-    return find_partial_value_bbox(
-        words,
-        value
-    )
-
-
-# =========================================================
-# FIND PDF OCR VALUE BBOX
-# =========================================================
-
-def find_pdf_ocr_value_bbox(
-    page_data,
-    detection
-):
-    """
-    Find the sensitive value rectangle in PDF coordinates.
-    """
-
-    rect = get_safe_value_bbox(
-        page_data.get(
-            "words",
-            []
-        ),
-        detection
-    )
-
-    if rect is None:
-        return None
-
-    return rect
-
-
-# =========================================================
-# ESTIMATE TEXT COLOR
-# =========================================================
-
-def estimate_text_color(
+def estimate_image_text_color(
     image,
     bbox
 ):
-    """
-    Estimate the original text color from the sensitive
-    region.
-    """
 
     left, top, right, bottom = bbox
 
-    left = max(
-        0,
-        int(left)
-    )
-
-    top = max(
-        0,
-        int(top)
-    )
-
-    right = min(
-        image.width,
-        int(right)
-    )
-
-    bottom = min(
-        image.height,
-        int(bottom)
-    )
-
-    if right <= left or bottom <= top:
-        return (
-            30,
-            30,
-            30
-        )
-
-    crop = np.array(
-        image.crop(
-            (
-                left,
-                top,
-                right,
-                bottom
-            )
-        )
-    )
-
-    if crop.size == 0:
-        return (
-            30,
-            30,
-            30
-        )
-
-    gray = cv2.cvtColor(
-        crop,
-        cv2.COLOR_RGB2GRAY
-    )
-
-    threshold = np.percentile(
-        gray,
-        35
-    )
-
-    pixels = crop[
-        gray <= threshold
+    crop = image[
+        top:bottom,
+        left:right
     ]
 
-    if len(pixels) == 0:
+    if crop.size == 0:
+
         return (
-            30,
-            30,
-            30
+            0,
+            0,
+            0
         )
 
-    mean_color = pixels.mean(
+    rgb = cv2.cvtColor(
+        crop,
+        cv2.COLOR_BGR2RGB
+    )
+
+    pixels = rgb.reshape(
+        -1,
+        3
+    )
+
+    brightness = pixels.mean(
+        axis=1
+    )
+
+    dark_pixels = pixels[
+        brightness < 200
+    ]
+
+    if len(
+        dark_pixels
+    ) == 0:
+
+        return (
+            0,
+            0,
+            0
+        )
+
+    color = np.median(
+        dark_pixels,
         axis=0
     )
 
     return tuple(
-        int(max(0, min(255, value)))
-        for value in mean_color
-    )
-
-
-# =========================================================
-# MASKING HELPER
-# =========================================================
-
-def get_masked_value(detection):
-    """
-    Generate the masked representation of a sensitive value.
-
-    Uses the same masking rules as modules.masking.
-    """
-
-    try:
-        from modules.masking import mask_value
-
-        value = detection.get(
-            "value",
-            ""
-        )
-
-        label = detection.get(
-            "label",
-            ""
-        )
-
-        return mask_value(
-            value,
-            label
-        )
-
-    except Exception as error:
-
-        print(
-            f"MASKING IMPORT ERROR: {error}"
-        )
-
-        # Safe fallback.
-        return "****"
-
-
-# =========================================================
-# PRESERVE BACKGROUND MASK
-# =========================================================
-
-def preserve_background_mask(
-    image,
-    bbox,
-    masked_text,
-    label=None
-):
-    """
-    Remove the original sensitive text while attempting
-    to preserve the surrounding scanned-document background.
-
-    OpenCV inpainting is used so the entire background is
-    not replaced by a large white rectangle.
-    """
-
-    if image is None:
-        return image
-
-    left, top, right, bottom = bbox
-
-    left = max(
-        0,
-        int(left)
-    )
-
-    top = max(
-        0,
-        int(top)
-    )
-
-    right = min(
-        image.width,
-        int(right)
-    )
-
-    bottom = min(
-        image.height,
-        int(bottom)
-    )
-
-    if right <= left or bottom <= top:
-        return image
-
-    # -----------------------------------------------------
-    # Original dimensions before margin.
-    # -----------------------------------------------------
-
-    original_left = left
-    original_top = top
-    original_right = right
-    original_bottom = bottom
-
-    width = right - left
-    height = bottom - top
-
-    # -----------------------------------------------------
-    # Add a small margin around the original text.
-    # -----------------------------------------------------
-
-    horizontal_margin = max(
-        3,
-        int(width * 0.08)
-    )
-
-    vertical_margin = max(
-        3,
-        int(height * 0.20)
-    )
-
-    left = max(
-        0,
-        left - horizontal_margin
-    )
-
-    right = min(
-        image.width,
-        right + horizontal_margin
-    )
-
-    top = max(
-        0,
-        top - vertical_margin
-    )
-
-    bottom = min(
-        image.height,
-        bottom + vertical_margin
-    )
-
-    # -----------------------------------------------------
-    # Convert to OpenCV image.
-    # -----------------------------------------------------
-
-    rgb = np.array(
-        image.convert(
-            "RGB"
-        )
-    )
-
-    bgr = cv2.cvtColor(
-        rgb,
-        cv2.COLOR_RGB2BGR
-    )
-
-    # -----------------------------------------------------
-    # Create mask.
-    # -----------------------------------------------------
-
-    mask = np.zeros(
-        (
-            bgr.shape[0],
-            bgr.shape[1]
-        ),
-        dtype=np.uint8
-    )
-
-    cv2.rectangle(
-        mask,
-        (
-            left,
-            top
-        ),
-        (
-            right,
-            bottom
-        ),
-        255,
-        -1
-    )
-
-    # -----------------------------------------------------
-    # Inpaint.
-    # -----------------------------------------------------
-
-    region_size = max(
-        3,
-        min(
-            9,
-            int(
-                max(
-                    width,
-                    height
-                ) * 0.15
+        int(
+            np.clip(
+                value,
+                0,
+                255
             )
         )
+        for value in color
     )
 
-    inpainted = cv2.inpaint(
-        bgr,
-        mask,
-        region_size,
-        cv2.INPAINT_TELEA
-    )
 
-    result_rgb = cv2.cvtColor(
-        inpainted,
-        cv2.COLOR_BGR2RGB
-    )
+# ============================================================
+# IMAGE FONT
+# ============================================================
 
-    result = Image.fromarray(
-        result_rgb
-    )
+def get_image_font(
+    size
+):
 
-    # -----------------------------------------------------
-    # Draw replacement value.
-    # -----------------------------------------------------
+    candidates = [
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\calibri.ttf",
 
-    if not masked_text:
-        return result
+        "/usr/share/fonts/truetype/liberation2/"
+        "LiberationSans-Regular.ttf",
 
-    draw = ImageDraw.Draw(
-        result
-    )
+        "/usr/share/fonts/truetype/dejavu/"
+        "DejaVuSans.ttf"
+    ]
 
-    text_color = estimate_text_color(
-        image,
-        (
-            original_left,
-            original_top,
-            original_right,
-            original_bottom
-        )
-    )
+    for path in candidates:
 
-    available_width = max(
-        10,
-        original_right - original_left
-    )
-
-    available_height = max(
-        10,
-        original_bottom - original_top
-    )
-
-    # Start close to OCR text height.
-    font_size = max(
-        8,
-        int(available_height * 0.85)
-    )
-
-    font = get_font(
-        font_size
-    )
-
-    # -----------------------------------------------------
-    # Fit text inside original area.
-    # -----------------------------------------------------
-
-    while font_size > 7:
-
-        font = get_font(
-            font_size
-        )
+        if not os.path.isfile(
+            path
+        ):
+            continue
 
         try:
 
-            box = draw.textbbox(
-                (
-                    0,
-                    0
-                ),
-                masked_text,
-                font=font
-            )
-
-            text_width = (
-                box[2]
-                - box[0]
-            )
-
-            text_height = (
-                box[3]
-                - box[1]
+            return ImageFont.truetype(
+                path,
+                max(
+                    5,
+                    int(size)
+                )
             )
 
         except Exception:
 
-            text_width = (
-                len(masked_text)
-                * font_size
-                * 0.55
-            )
+            pass
 
-            text_height = font_size
+    return ImageFont.load_default()
 
-        if (
-            text_width <= available_width
-            and
-            text_height <= available_height
-        ):
-            break
 
-        font_size -= 1
+# ============================================================
+# REMOVE IMAGE TEXT
+# ============================================================
 
-    # -----------------------------------------------------
-    # Calculate replacement position.
-    # -----------------------------------------------------
+def remove_image_text(
+    image,
+    bbox
+):
+
+    left, top, right, bottom = bbox
+
+    mask = np.zeros(
+        image.shape[:2],
+        dtype=np.uint8
+    )
+
+    pad_x = max(
+        2,
+        int(
+            (right - left) * 0.02
+        )
+    )
+
+    pad_y = max(
+        1,
+        int(
+            (bottom - top) * 0.08
+        )
+    )
+
+    left = max(
+        0,
+        left - pad_x
+    )
+
+    top = max(
+        0,
+        top - pad_y
+    )
+
+    right = min(
+        image.shape[1],
+        right + pad_x
+    )
+
+    bottom = min(
+        image.shape[0],
+        bottom + pad_y
+    )
+
+    mask[
+        top:bottom,
+        left:right
+    ] = 255
 
     try:
 
-        box = draw.textbbox(
-            (
-                0,
-                0
-            ),
-            masked_text,
-            font=font
-        )
-
-        text_width = (
-            box[2]
-            - box[0]
-        )
-
-        text_height = (
-            box[3]
-            - box[1]
+        return cv2.inpaint(
+            image,
+            mask,
+            INPAINT_RADIUS,
+            cv2.INPAINT_TELEA
         )
 
     except Exception:
 
-        text_width = (
-            len(masked_text)
-            * font_size
-            * 0.55
+        result = image.copy()
+
+        result[
+            top:bottom,
+            left:right
+        ] = (
+            255,
+            255,
+            255
         )
 
-        text_height = font_size
+        return result
 
-    text_x = (
-        original_left
-        + (
-            available_width
-            - text_width
-        ) / 2
+
+# ============================================================
+# DRAW IMAGE MASKED TEXT
+# ============================================================
+
+def draw_image_masked_text(
+    image,
+    bbox,
+    text,
+    color
+):
+
+    if not text:
+        return image
+
+    left, top, right, bottom = bbox
+
+    box_width = max(
+        1,
+        right - left
     )
 
-    text_y = (
-        original_top
+    box_height = max(
+        1,
+        bottom - top
+    )
+
+    font_size = max(
+        8,
+        int(
+            box_height * 1.15
+        )
+    )
+
+    pil_image = Image.fromarray(
+        cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+    )
+
+    draw = ImageDraw.Draw(
+        pil_image
+    )
+
+    while font_size > 6:
+
+        font = get_image_font(
+            font_size
+        )
+
+        text_box = draw.textbbox(
+            (
+                0,
+                0
+            ),
+            text,
+            font=font
+        )
+
+        text_width = (
+            text_box[2]
+            - text_box[0]
+        )
+
+        if text_width <= box_width:
+            break
+
+        font_size -= 1
+
+    text_box = draw.textbbox(
+        (
+            0,
+            0
+        ),
+        text,
+        font=font
+    )
+
+    text_height = (
+        text_box[3]
+        - text_box[1]
+    )
+
+    x = left
+
+    y = (
+        top
         + (
-            available_height
+            box_height
             - text_height
         ) / 2
-        - 1
+        - text_box[1]
     )
 
     draw.text(
         (
-            int(text_x),
-            int(text_y)
+            int(x),
+            int(y)
         ),
-        masked_text,
-        fill=text_color,
-        font=font
+        text,
+        font=font,
+        fill=tuple(color)
+    )
+
+    return cv2.cvtColor(
+        np.array(
+            pil_image
+        ),
+        cv2.COLOR_RGB2BGR
+    )
+
+
+# ============================================================
+# PROTECT IMAGE
+# ============================================================
+
+def protect_image(
+    image,
+    detections
+):
+
+    result = image.copy()
+
+    cleaned = clean_detections(
+        detections
+    )
+
+    # Process from bottom to top so OCR coordinates
+    # remain stable.
+    ordered = sorted(
+        cleaned,
+        key=lambda item: float(
+            item.get(
+                "top",
+                0
+            )
+        ),
+        reverse=True
+    )
+
+    for detection in ordered:
+
+        bbox = get_image_bbox(
+            detection,
+            result
+        )
+
+        if bbox is None:
+            continue
+
+        label = detection[
+            "label"
+        ]
+
+        value = detection[
+            "value"
+        ]
+
+        masked = get_masked_value(
+            value,
+            label
+        )
+
+        original_color = (
+            estimate_image_text_color(
+                result,
+                bbox
+            )
+        )
+
+        result = remove_image_text(
+            result,
+            bbox
+        )
+
+        result = draw_image_masked_text(
+            result,
+            bbox,
+            masked,
+            original_color
+        )
+
+    return result
+
+
+# ============================================================
+# IMAGE -> PDF
+# ============================================================
+
+def protect_image_file(
+    input_path,
+    output_path,
+    detections,
+    document_data=None
+):
+
+    image = cv2.imread(
+        input_path,
+        cv2.IMREAD_COLOR
+    )
+
+    if image is None:
+
+        raise ValueError(
+            f"Unable to read image: "
+            f"{input_path}"
+        )
+
+    protected = protect_image(
+        image,
+        detections
+    )
+
+    success, encoded = (
+        cv2.imencode(
+            ".png",
+            protected
+        )
+    )
+
+    if not success:
+
+        raise ValueError(
+            "Unable to encode protected image."
+        )
+
+    height, width = (
+        protected.shape[:2]
+    )
+
+    document = fitz.open()
+
+    try:
+
+        page = document.new_page(
+            width=width / PDF_RENDER_SCALE,
+            height=height / PDF_RENDER_SCALE
+        )
+
+        page.insert_image(
+            page.rect,
+            stream=encoded.tobytes()
+        )
+
+        document.save(
+            output_path,
+            garbage=4,
+            deflate=True,
+            clean=True
+        )
+
+    finally:
+
+        document.close()
+
+    validate_pdf(
+        output_path
+    )
+
+    return output_path
+
+
+# ============================================================
+# PROTECT PDF
+# ============================================================
+
+def protect_pdf_file(
+    input_path,
+    output_path,
+    detections,
+    document_data=None
+):
+
+    document = fitz.open(
+        input_path
+    )
+
+    detections = clean_detections(
+        detections
+    )
+
+    try:
+
+        for index in range(
+            len(document)
+        ):
+
+            page = document[
+                index
+            ]
+
+            page_number = (
+                index + 1
+            )
+
+            page_detections = (
+                get_page_detections(
+                    detections,
+                    page_number
+                )
+            )
+
+            # =================================================
+            # NATIVE TEXT PDF
+            # =================================================
+
+            if is_native_text_page(
+                page
+            ):
+
+                # IMPORTANT:
+                #
+                # We modify the ORIGINAL PDF page itself.
+                #
+                # We do NOT convert the complete page into an
+                # image.
+                #
+                # This preserves the original:
+                # - page size
+                # - layout
+                # - images
+                # - graphics
+                # - text
+                # - colors
+                # - fonts
+                # - quality
+                #
+
+                for detection in page_detections:
+
+                    mask_native_pdf_text(
+                        page,
+                        document,
+                        detection
+                    )
+
+            # =================================================
+            # SCANNED / IMAGE PDF
+            # =================================================
+
+            else:
+
+                image = render_pdf_page(
+                    page
+                )
+
+                if page_detections:
+
+                    image = protect_image(
+                        image,
+                        page_detections
+                    )
+
+                success, encoded = (
+                    cv2.imencode(
+                        ".png",
+                        image
+                    )
+                )
+
+                if not success:
+
+                    raise ValueError(
+                        "Unable to encode scanned PDF page."
+                    )
+
+                # Only scanned pages are replaced with their
+                # protected image.
+                page.clean_contents()
+
+                page.insert_image(
+                    page.rect,
+                    stream=encoded.tobytes()
+                )
+
+        # =====================================================
+        # SAVE
+        # =====================================================
+
+        document.save(
+            output_path,
+            garbage=4,
+            deflate=True,
+            clean=True
+        )
+
+    finally:
+
+        document.close()
+
+    validate_pdf(
+        output_path
+    )
+
+    return output_path
+
+
+# ============================================================
+# MAIN FUNCTION
+# ============================================================
+
+def create_protected_pdf(
+    input_path,
+    output_path,
+    detections,
+    document_data=None
+):
+
+    if not input_path:
+
+        raise ValueError(
+            "Input file is required."
+        )
+
+    if not os.path.isfile(
+        input_path
+    ):
+
+        raise FileNotFoundError(
+            f"Input file not found: "
+            f"{input_path}"
+        )
+
+    output_directory = (
+        os.path.dirname(
+            output_path
+        )
+        or "."
+    )
+
+    os.makedirs(
+        output_directory,
+        exist_ok=True
+    )
+
+    extension = os.path.splitext(
+        input_path
+    )[1].lower()
+
+    detections = clean_detections(
+        detections
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "CREATING PROTECTED DOCUMENT"
+    )
+
+    print(
+        "Original:",
+        input_path
+    )
+
+    print(
+        "Output:",
+        output_path
+    )
+
+    print(
+        "Detections:",
+        detections
+    )
+
+    if extension == ".pdf":
+
+        result = protect_pdf_file(
+            input_path,
+            output_path,
+            detections,
+            document_data
+        )
+
+    elif extension in {
+        ".png",
+        ".jpg",
+        ".jpeg"
+    }:
+
+        result = protect_image_file(
+            input_path,
+            output_path,
+            detections,
+            document_data
+        )
+
+    else:
+
+        raise ValueError(
+            "Unsupported file type. "
+            "Supported formats: "
+            "PDF, PNG, JPG, JPEG."
+        )
+
+    validate_pdf(
+        result
+    )
+
+    with open(
+        result,
+        "rb"
+    ) as file:
+
+        header = file.read(
+            5
+        )
+
+    print(
+        "PROTECTED FILE SIZE:",
+        os.path.getsize(result)
+    )
+
+    print(
+        "PROTECTED FILE HEADER:",
+        header
+    )
+
+    print(
+        "========================================"
     )
 
     return result
 
 
-# =========================================================
-# IMAGE → PNG BYTES
-# =========================================================
+# ============================================================
+# FINAL PDF VALIDATION
+# ============================================================
 
-def image_to_png_bytes(
-    image
+def validate_pdf(
+    path
 ):
 
-    buffer = io.BytesIO()
-
-    image.save(
-        buffer,
-        format="PNG"
-    )
-
-    return buffer.getvalue()
-
-
-# =========================================================
-# IMAGE → PDF DOCUMENT
-# =========================================================
-
-def image_to_pdf_document(
-    image,
-    scale
-):
-    """
-    Convert a PIL image into a temporary PyMuPDF PDF
-    document.
-
-    This is required because show_pdf_page() accepts
-    a PDF source document, not a PNG/image document.
-    """
-
-    png_bytes = image_to_png_bytes(
-        image
-    )
-
-    image_document = fitz.open()
-
-    # Keep the same physical size as the rendered
-    # original PDF page.
-    pdf_width = (
-        image.width / scale
-    )
-
-    pdf_height = (
-        image.height / scale
-    )
-
-    pdf_page = image_document.new_page(
-        width=pdf_width,
-        height=pdf_height
-    )
-
-    pdf_page.insert_image(
-        pdf_page.rect,
-        stream=png_bytes
-    )
-
-    return image_document
-
-
-# =========================================================
-# PDF → PIXEL COORDINATES
-# =========================================================
-
-def pdf_rect_to_pixels(
-    rect,
-    page_rect,
-    image_width,
-    image_height
-):
-
-    if (
-        page_rect.width <= 0
-        or page_rect.height <= 0
+    if not os.path.isfile(
+        path
     ):
-        return None
 
-    scale_x = (
-        image_width
-        /
-        page_rect.width
-    )
-
-    scale_y = (
-        image_height
-        /
-        page_rect.height
-    )
-
-    return (
-        rect[0] * scale_x,
-        rect[1] * scale_y,
-        rect[2] * scale_x,
-        rect[3] * scale_y,
-    )
-
-
-# =========================================================
-# IMAGE → PDF COORDINATES
-# =========================================================
-
-def image_rect_to_pdf(
-    rect,
-    image_width,
-    image_height,
-    image_pdf_rect
-):
-
-    if (
-        image_width <= 0
-        or image_height <= 0
-    ):
-        return None
-
-    scale_x = (
-        image_pdf_rect.width
-        /
-        image_width
-    )
-
-    scale_y = (
-        image_pdf_rect.height
-        /
-        image_height
-    )
-
-    return (
-        image_pdf_rect.x0
-        +
-        rect[0] * scale_x,
-
-        image_pdf_rect.y0
-        +
-        rect[1] * scale_y,
-
-        image_pdf_rect.x0
-        +
-        rect[2] * scale_x,
-
-        image_pdf_rect.y0
-        +
-        rect[3] * scale_y,
-    )
-
-
-# =========================================================
-# PDF DETECTION RECTANGLE
-# =========================================================
-
-def get_pdf_detection_rect(
-    page_data,
-    detection,
-    page_rect
-):
-    """
-    Convert the detection rectangle into PDF coordinates.
-
-    Supported coordinate spaces:
-
-        pdf
-        image
-    """
-
-    # -----------------------------------------------------
-    # Prefer coordinates directly supplied by detection.
-    # -----------------------------------------------------
-
-    rect = get_safe_value_bbox(
-        page_data.get(
-            "words",
-            []
-        ),
-        detection
-    )
-
-    if rect is None:
-        return None
-
-    coordinate_space = (
-        detection.get(
-            "coordinate_space"
-        )
-        or
-        page_data.get(
-            "coordinate_space"
-        )
-        or
-        "pdf"
-    )
-
-    coordinate_space = str(
-        coordinate_space
-    ).lower()
-
-    # -----------------------------------------------------
-    # Already PDF coordinates.
-    # -----------------------------------------------------
-
-    if coordinate_space == "pdf":
-
-        return fitz.Rect(
-            rect[0],
-            rect[1],
-            rect[2],
-            rect[3]
+        raise ValueError(
+            "Protected PDF was not created."
         )
 
-    # -----------------------------------------------------
-    # Image coordinates.
-    # -----------------------------------------------------
-
-    if coordinate_space == "image":
-
-        image_width = page_data.get(
-            "image_width"
-        )
-
-        image_height = page_data.get(
-            "image_height"
-        )
-
-        image_pdf_rect = page_data.get(
-            "pdf_rect"
-        )
-
-        # -------------------------------------------------
-        # If pdf_rect is represented as a tuple/list,
-        # convert it to fitz.Rect.
-        # -------------------------------------------------
-
-        if image_pdf_rect is not None:
-
-            if isinstance(
-                image_pdf_rect,
-                (list, tuple)
-            ) and len(image_pdf_rect) >= 4:
-
-                try:
-
-                    image_pdf_rect = fitz.Rect(
-                        float(image_pdf_rect[0]),
-                        float(image_pdf_rect[1]),
-                        float(image_pdf_rect[2]),
-                        float(image_pdf_rect[3])
-                    )
-
-                except Exception:
-
-                    image_pdf_rect = None
-
-        if (
-            image_width
-            and
-            image_height
-            and
-            image_pdf_rect
-        ):
-
-            converted = image_rect_to_pdf(
-                rect,
-                float(image_width),
-                float(image_height),
-                image_pdf_rect
-            )
-
-            if converted:
-
-                return fitz.Rect(
-                    *converted
-                )
-
-        # -------------------------------------------------
-        # Fallback: assume image covers whole PDF page.
-        # -------------------------------------------------
-
-        if image_width and image_height:
-
-            converted = image_rect_to_pdf(
-                rect,
-                float(image_width),
-                float(image_height),
-                page_rect
-            )
-
-            if converted:
-
-                return fitz.Rect(
-                    *converted
-                )
-
-    return None
-
-
-# =========================================================
-# SCANNED PDF PAGE
-# =========================================================
-
-def protect_scanned_pdf_page(
-    page,
-    page_data,
-    page_detections
-):
-    """
-    Protect a scanned/image-based PDF page.
-
-    The entire page is rendered as an image, only the
-    detected sensitive regions are modified, and the
-    protected image is placed back into the original page.
-
-    This preserves the overall document appearance much
-    better than reconstructing the page from scratch.
-    """
-
-    # Higher resolution gives better masking quality.
-    scale = 2.5
-
-    pix = page.get_pixmap(
-        matrix=fitz.Matrix(
-            scale,
-            scale
-        ),
-        alpha=False
+    file_size = os.path.getsize(
+        path
     )
 
-    image = Image.frombytes(
-        "RGB",
-        (
-            pix.width,
-            pix.height
-        ),
-        pix.samples
-    )
+    if file_size < 100:
 
-    page_rect = page.rect
-
-    # -----------------------------------------------------
-    # Mask every approved sensitive detection.
-    # -----------------------------------------------------
-
-    for detection in page_detections:
-
-        pdf_rect = get_pdf_detection_rect(
-            page_data,
-            detection,
-            page_rect
+        raise ValueError(
+            "Protected PDF is unexpectedly small."
         )
 
-        if pdf_rect is None:
-            continue
+    with open(
+        path,
+        "rb"
+    ) as file:
 
-        pixel_bbox = pdf_rect_to_pixels(
-            (
-                pdf_rect.x0,
-                pdf_rect.y0,
-                pdf_rect.x1,
-                pdf_rect.y1,
-            ),
-            page_rect,
-            image.width,
-            image.height
+        header = file.read(
+            5
         )
 
-        if pixel_bbox is None:
-            continue
+    if header != b"%PDF-":
 
-        try:
-
-            masked_text = get_masked_value(
-                detection
-            )
-
-        except Exception as error:
-
-            print(
-                f"MASK ERROR: {error}"
-            )
-
-            masked_text = "****"
-
-        image = preserve_background_mask(
-            image,
-            pixel_bbox,
-            masked_text,
-            detection.get(
-                "label"
-            )
+        raise ValueError(
+            "Protected document is not a valid PDF."
         )
 
-    # -----------------------------------------------------
-    # Convert protected image to a temporary PDF.
-    #
-    # IMPORTANT:
-    # show_pdf_page() requires a PDF source document.
-    # It cannot use a PNG document directly.
-    # -----------------------------------------------------
-
-    image_document = image_to_pdf_document(
-        image,
-        scale
+    test_document = fitz.open(
+        path
     )
 
     try:
 
-        page.clean_contents()
+        if len(
+            test_document
+        ) == 0:
 
-        page.show_pdf_page(
-            page.rect,
-            image_document,
-            0
-        )
+            raise ValueError(
+                "Protected PDF contains no pages."
+            )
 
     finally:
 
-        image_document.close()
-
-
-# =========================================================
-# NATIVE TEXT PDF PAGE
-# =========================================================
-
-def protect_text_pdf_page(
-    page,
-    page_data,
-    page_detections
-):
-    """
-    Protect a native-text PDF page using PyMuPDF
-    redaction annotations.
-    """
-
-    for detection in page_detections:
-
-        rect = get_pdf_detection_rect(
-            page_data,
-            detection,
-            page.rect
-        )
-
-        if rect is None:
-            continue
-
-        rect.x0 -= 1
-        rect.y0 -= 1
-        rect.x1 += 1
-        rect.y1 += 1
-
-        try:
-
-            masked_text = get_masked_value(
-                detection
-            )
-
-        except Exception as error:
-
-            print(
-                f"MASK ERROR: {error}"
-            )
-
-            masked_text = "****"
-
-        page.add_redact_annot(
-            rect,
-            text=masked_text,
-            fill=(
-                1,
-                1,
-                1
-            ),
-            text_color=(
-                0,
-                0,
-                0
-            )
-        )
-
-    page.apply_redactions()
-
-
-# =========================================================
-# DETERMINE PAGE TYPE
-# =========================================================
-
-def is_scanned_page(
-    page,
-    page_data,
-    page_detections
-):
-    """
-    Determine whether the page should be processed as a
-    scanned/image page or native text PDF page.
-    """
-
-    page_type = str(
-        page_data.get(
-            "type",
-            ""
-        )
-    ).lower()
-
-    if page_type in {
-        "image",
-        "ocr",
-        "scanned",
-        "scan",
-    }:
-
-        return True
-
-    if page_data.get(
-        "image"
-    ) is not None:
-
-        return True
-
-    for detection in page_detections:
-
-        coordinate_space = str(
-            detection.get(
-                "coordinate_space",
-                ""
-            )
-        ).lower()
-
-        if coordinate_space == "image":
-            return True
-
-    try:
-
-        native_text = page.get_text(
-            "text"
-        ).strip()
-
-        if native_text:
-            return False
-
-    except Exception:
-        pass
+        test_document.close()
 
     return True
-
-
-# =========================================================
-# MAIN PROTECTED DOCUMENT FUNCTION
-# =========================================================
-
-def create_protected_pdf(
-    original_path,
-    output_path,
-    detections,
-    document_data
-):
-    """
-    Create a protected copy of the original document.
-
-    Supports:
-
-        PDF
-        PNG
-        JPG
-        JPEG
-
-    Only approved sensitive detections are masked.
-
-    Names, DOB, phone, email, addresses, URLs and other
-    ignored entities are not touched.
-    """
-
-    if not os.path.exists(
-        original_path
-    ):
-
-        raise FileNotFoundError(
-            f"Original file not found: "
-            f"{original_path}"
-        )
-
-    extension = os.path.splitext(
-        original_path
-    )[1].lower()
-
-    output_directory = os.path.dirname(
-        output_path
-    )
-
-    if output_directory:
-
-        os.makedirs(
-            output_directory,
-            exist_ok=True
-        )
-
-    detections = detections or []
-
-    # =====================================================
-    # IMAGE FILE
-    # =====================================================
-
-    if extension in {
-        ".png",
-        ".jpg",
-        ".jpeg",
-    }:
-
-        image = Image.open(
-            original_path
-        ).convert(
-            "RGB"
-        )
-
-        for detection in detections:
-
-            coordinate_space = str(
-                detection.get(
-                    "coordinate_space",
-                    "image"
-                )
-            ).lower()
-
-            # Image files should use image coordinates.
-            if coordinate_space != "image":
-                continue
-
-            rect = get_detection_rect(
-                detection
-            )
-
-            if rect is None:
-                continue
-
-            try:
-
-                masked_text = get_masked_value(
-                    detection
-                )
-
-            except Exception as error:
-
-                print(
-                    f"MASK ERROR: {error}"
-                )
-
-                masked_text = "****"
-
-            image = preserve_background_mask(
-                image,
-                rect,
-                masked_text,
-                detection.get(
-                    "label"
-                )
-            )
-
-        if extension == ".png":
-
-            image.save(
-                output_path,
-                format="PNG"
-            )
-
-        else:
-
-            image.save(
-                output_path,
-                format="JPEG",
-                quality=95
-            )
-
-        return output_path
-
-    # =====================================================
-    # PDF FILE
-    # =====================================================
-
-    if extension == ".pdf":
-
-        source = fitz.open(
-            original_path
-        )
-
-        try:
-
-            # -------------------------------------------------
-            # Group detections by page.
-            # -------------------------------------------------
-
-            detections_by_page = {}
-
-            for detection in detections:
-
-                try:
-
-                    page_number = int(
-                        detection.get(
-                            "page_number",
-                            1
-                        )
-                    )
-
-                except Exception:
-
-                    page_number = 1
-
-                detections_by_page.setdefault(
-                    page_number,
-                    []
-                ).append(
-                    detection
-                )
-
-            # -------------------------------------------------
-            # Page metadata from OCR.
-            # -------------------------------------------------
-
-            pages_data = {}
-
-            if document_data:
-
-                for page_data in document_data.get(
-                    "pages",
-                    []
-                ):
-
-                    try:
-
-                        page_number = int(
-                            page_data.get(
-                                "page_number"
-                            )
-                        )
-
-                    except Exception:
-
-                        continue
-
-                    pages_data[
-                        page_number
-                    ] = page_data
-
-            # -------------------------------------------------
-            # Process pages.
-            # -------------------------------------------------
-
-            for page_index in range(
-                len(source)
-            ):
-
-                page_number = (
-                    page_index + 1
-                )
-
-                page_detections = (
-                    detections_by_page.get(
-                        page_number,
-                        []
-                    )
-                )
-
-                if not page_detections:
-                    continue
-
-                page = source[
-                    page_index
-                ]
-
-                page_data = pages_data.get(
-                    page_number,
-                    {}
-                )
-
-                if is_scanned_page(
-                    page,
-                    page_data,
-                    page_detections
-                ):
-
-                    protect_scanned_pdf_page(
-                        page,
-                        page_data,
-                        page_detections
-                    )
-
-                else:
-
-                    protect_text_pdf_page(
-                        page,
-                        page_data,
-                        page_detections
-                    )
-
-            # -------------------------------------------------
-            # Save protected PDF.
-            # -------------------------------------------------
-
-            source.save(
-                output_path,
-                garbage=4,
-                deflate=True
-            )
-
-        finally:
-
-            source.close()
-
-        return output_path
-
-    # =====================================================
-    # UNSUPPORTED FILE
-    # =====================================================
-
-    raise ValueError(
-        f"Unsupported file type: {extension}"
-    )
