@@ -77,6 +77,5 @@ The project includes a multi-stage Dockerfile pre-configured to install Tesserac
 Dockerfile
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 2 --timeout 120 app:app"]
 
-### 3. Security & Privacy Notice
-
+#Security & Privacy Notice
 All file processing is performed server-side within the container boundary. Uploaded files and generated redacted assets are kept in ephemeral storage.
