@@ -1,0 +1,10 @@
+Flask==3.0.3
+PyMuPDF==1.24.1
+pymupdf==1.24.1
+pytesseract==0.3.10
+opencv-python-headless==4.9.0.80
+Pillow==10.3.0
+numpy==1.26.4
+werkzeug==3.0.3
+gunicorn==22.0.0
+spacy>=3.8.0

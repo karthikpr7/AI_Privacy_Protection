@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PrivaSeal AI — Document Privacy &amp; PII Redaction</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="glow-sphere s1"></div>
+  <div class="glow-sphere s2"></div>
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">PrivaSeal <span>AI</span></div>
+        <div class="brand-tagline">Autonomous Privacy &amp; PII Redaction Engine</div>
+      </div>
+    </div>
+
+    <div class="stepper">
+      <div class="step-badge active" id="stepBadge1">
+        <span class="num">01</span>
+        <span class="txt">Upload Document</span>
+      </div>
+      <div class="step-connector"></div>
+      <div class="step-badge" id="stepBadge2">
+        <span class="num">02</span>
+        <span class="txt">Review PII</span>
+      </div>
+      <div class="step-connector"></div>
+      <div class="step-badge" id="stepBadge3">
+        <span class="num">03</span>
+        <span class="txt">Download Protected</span>
+      </div>
+    </div>
+
+    <div class="live-pill">
+      <span class="pulse-light"></span>
+      <span>SPACY NER &bull; TESSERACT OCR</span>
+    </div>
+  </header>
+
+  <main class="viewport">
+    
+    <!-- STEP 1: UPLOAD -->
+    <section class="step-panel active" id="panelStep1">
+      <div class="hero-box">
+        <div class="pill-tag">Automated Document Sanitization</div>
+        <h1>Redact Sensitive PII with <span class="accent-text">Zero Compromise</span></h1>
+        <p>Instantly mask Indian PAN cards, Bank Account numbers, and Credit Cards across digital text and scanned image files.</p>
+      </div>
+
+      <div class="upload-zone-wrapper">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="pdfFileInput" accept="application/pdf, image/png, image/jpeg, image/jpg, image/bmp, image/tiff" />
+          <div class="dropzone-body">
+            <div class="upload-icon-circle">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+                <path d="M12 12v9"/>
+                <path d="m16 16-4-4-4 4"/>
+              </svg>
+            </div>
+            <h3>Drag &amp; Drop your PDF or Image here</h3>
+            <p>Supports PDFs, PNG, JPG, JPEG, BMP &amp; TIFF (scans, ID photos, receipts &amp; contracts)</p>
+            <div class="btn-browse">Browse File</div>
+          </div>
+        </div>
+
+        <div class="file-loaded-card" id="fileLoadedCard" style="display: none;">
+          <div class="file-details">
+            <div class="pdf-icon-box">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </div>
+            <div class="file-name-wrap">
+              <div class="name-str" id="selectedName">file.pdf</div>
+              <div class="size-str" id="selectedSize">0.0 KB</div>
+            </div>
+            <button class="btn-clear" id="btnClearFile" title="Change file">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          <button id="btnScanDoc" class="btn-cta glow">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+            </svg>
+            <span>Scan for Sensitive Data</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="features-grid">
+        <div class="f-card">
+          <div class="f-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+          </div>
+          <h4>Hybrid Intelligence</h4>
+          <p>Combines fine-tuned spaCy token classification with pixel-level OCR bounding boxes.</p>
+        </div>
+        <div class="f-card">
+          <div class="f-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+          </div>
+          <h4>Context-Aware Filtering</h4>
+          <p>Eliminates false positives by suppressing invoice IDs, tracking codes, and benign totals.</p>
+        </div>
+        <div class="f-card">
+          <div class="f-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <h4>Byte-Level Sanitization</h4>
+          <p>Permanently burns pixel redactions and strips target characters from internal PDF streams.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 2: REVIEW PII -->
+    <section class="step-panel" id="panelStep2">
+      <div class="review-layout">
+        
+        <aside class="review-controls">
+          <div class="card-inner">
+            <div class="controls-header">
+              <div>
+                <h2>Entities Detected</h2>
+                <p>Uncheck any item to exclude it from masking</p>
+              </div>
+              <span class="found-pill" id="foundCountPill">0 found</span>
+            </div>
+
+            <div class="entity-list-box" id="entityListBox"></div>
+
+            <div class="mask-options-box">
+              <label class="section-label">Select Protection Style</label>
+              <div class="mode-select-grid">
+                <label class="mode-choice">
+                  <input type="radio" name="maskMode" value="partial" checked />
+                  <div class="choice-ui">
+                    <span class="title">Partial Mask</span>
+                    <span class="desc">e.g. AB******4F</span>
+                  </div>
+                </label>
+                <label class="mode-choice">
+                  <input type="radio" name="maskMode" value="blackout" />
+                  <div class="choice-ui">
+                    <span class="title">Full Blackout</span>
+                    <span class="desc">Solid block redaction</span>
+                  </div>
+                </label>
+              </div>
+
+              <div class="btn-dual-row">
+                <button class="btn-ghost" id="btnBackToUpload">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+                  <span>Back</span>
+                </button>
+                <button class="btn-redact glow-red" id="btnApplyRedaction">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span>Redact Document</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="review-viewer">
+          <div class="viewer-top">
+            <span class="v-title">Document Inspection</span>
+            <div class="page-switcher">
+              <button id="step2Prev" class="btn-arrow"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <span>Page <b id="step2Cur">1</b> of <b id="step2Total">1</b></span>
+              <button id="step2Next" class="btn-arrow"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+          </div>
+          <div class="canvas-mount">
+            <canvas id="canvasStep2"></canvas>
+          </div>
+        </main>
+
+      </div>
+    </section>
+
+    <!-- STEP 3: CELEBRATION & DOWNLOAD -->
+    <section class="step-panel" id="panelStep3">
+      <div class="download-layout">
+        <div class="celebration-card">
+          <div class="success-icon-wrap">
+            <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2.4">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <h2>Document Protected &amp; Sanitized</h2>
+          <p>Sensitive identifiers have been masked, and underlying PDF vector metadata has been purged.</p>
+
+          <div class="final-actions">
+            <button class="btn-download glow-green" id="btnDownloadFile">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>Download Protected PDF</span>
+            </button>
+            <button class="btn-ghost" id="btnStartNew">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+              <span>Protect Another</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="verification-viewer">
+          <div class="viewer-top">
+            <div class="toggle-tabs">
+              <button class="tab active" id="tabViewProtected">Protected View</button>
+              <button class="tab" id="tabViewOriginal">Original View</button>
+            </div>
+            <div class="page-switcher">
+              <button id="step3Prev" class="btn-arrow"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <span>Page <b id="step3Cur">1</b> of <b id="step3Total">1</b></span>
+              <button id="step3Next" class="btn-arrow"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+          </div>
+          <div class="canvas-mount">
+            <canvas id="canvasStep3"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="global-modal" id="globalLoader" style="display: none;">
+    <div class="loader-card">
+      <div class="spinner-ring"></div>
+      <h3 id="loaderTitle">Processing</h3>
+      <p id="loaderSubtitle">Sanitizing streams and applying coordinate masks...</p>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
